@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "mode": "demo",
+    "label": "Página demostrativa",
+    "deviceMac": "02:00:00:00:00:01",
+    "timezone": "America/Santiago",
+    "updateIntervalMinutes": 15,
+    "scenario": "Hogar chileno ficticio"
+  },
+  "device": {
+    "model": "LevelGas Pro",
+    "cylinder": "15K",
+    "netCapacityKg": 15,
+    "tareKg": 13.2,
+    "fullWeightKg": 28.2,
+    "wifiName": "Hogar-Demo",
+    "plan": "hogar",
+    "cycleLengthDays": 29,
+    "cycleNumberBase": 7,
+    "batteryStartVoltage": 4.47,
+    "batteryEndVoltage": 3.72,
+    "calibrationDifferenceKg": 0.08
+  },
+  "simulation": {
+    "epochUtc": "2026-01-01T00:00:00.000Z",
+    "minimumNetKg": 0.7,
+    "nominalDailyConsumptionKg": 0.49,
+    "naturalVariationKg": 0.035,
+    "slotsPerDay": 96
+  },
+  "plans": [
+    {
+      "id": "hogar",
+      "name": "HOGAR",
+      "price": "$1.900/mes",
+      "features": [
+        "Historial de 30 días",
+        "Excel con ciclos",
+        "Exportación CSV",
+        "PDF diario",
+        "Alertas de batería por email",
+        "Alertas de gas por email"
+      ]
+    },
+    {
+      "id": "empresa",
+      "name": "EMPRESA",
+      "price": "$9.900/mes",
+      "features": [
+        "Historial de 6 meses",
+        "Excel con ciclos",
+        "Exportación CSV",
+        "PDF semanal",
+        "Alertas por email",
+        "Alertas por SMS"
+      ]
+    }
+  ],
+  "demoProviders": [
+    {
+      "name": "Distribuidor de ejemplo",
+      "phone": "+56 9 0000 0000"
+    },
+    {
+      "name": "Proveedor hogar demo",
+      "phone": "+56 9 1111 1111"
+    }
+  ]
+}

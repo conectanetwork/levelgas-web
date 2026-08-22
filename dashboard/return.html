@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelGas · Pago procesado</title>
+<meta name="theme-color" content="#6366f1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Cormorant+Garamond:ital,wght@1,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f1f5f9; --card:#ffffff; --border:#d1d9e6;
+  --text:#1e293b; --muted:#64748b;
+  --primary:#6366f1; --primary-dim:rgba(99,102,241,.12);
+  --green:#10b981; --green-dim:rgba(16,185,129,.12);
+  --shadow:0 4px 20px rgba(0,0,0,.09);
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Inter',sans-serif;
+  background:var(--bg);color:var(--text);
+  min-height:100vh;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:24px;
+}
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:40px 36px;
+  max-width:420px;width:100%;
+  text-align:center;
+}
+.icon{
+  width:64px;height:64px;border-radius:50%;
+  background:var(--green-dim);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 20px;
+  font-size:32px;
+}
+.icon.spinning{
+  background:var(--primary-dim);
+  animation:spin 1.2s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{font-size:20px;font-weight:700;margin-bottom:8px}
+p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:20px}
+.btn{
+  display:inline-block;
+  background:var(--primary);color:#fff;
+  font-size:14px;font-weight:600;
+  padding:11px 28px;border-radius:9px;
+  text-decoration:none;border:none;cursor:pointer;
+  transition:opacity .2s;
+}
+.btn:hover{opacity:.88;text-decoration:none}
+.slogan{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;font-weight:600;
+  font-size:13px;color:var(--muted);
+  margin-top:28px;
+}
+.countdown{font-size:12px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="icon spinning" id="icon">⏳</div>
+  <h1 id="title">Verificando pago…</h1>
+  <p id="msg">Estamos confirmando tu pago con Flow. Serás redirigido automáticamente en unos segundos.</p>
+  <a href="#" class="btn" id="btn" style="display:none">Ir al Dashboard</a>
+  <p class="countdown" id="cd"></p>
+  <p class="slogan">✦ nunca te quedarás sin Gas ✦</p>
+</div>
+
+<script>
+(function () {
+  // Extraer device desde query string (urlReturn lo incluye)
+  const params  = new URLSearchParams(window.location.search);
+  const device  = params.get("device") || "";
+  const dashUrl = "https://levelgas.cl/dashboard/" +
+                  (device ? "?device=" + encodeURIComponent(device) + "&plan_ok=1" : "?plan_ok=1");
+
+  const icon  = document.getElementById("icon");
+  const title = document.getElementById("title");
+  const msg   = document.getElementById("msg");
+  const btn   = document.getElementById("btn");
+  const cd    = document.getElementById("cd");
+
+  btn.href = dashUrl;
+
+  // Redirige automáticamente tras N segundos
+  let secs = 5;
+  function tick() {
+    cd.textContent = "Redirigiendo en " + secs + " s…";
+    if (secs <= 0) {
+      window.location.replace(dashUrl);
+      return;
+    }
+    secs--;
+    setTimeout(tick, 1000);
+  }
+
+  // Mostrar estado OK tras breve pausa (el webhook ya procesó el pago)
+  setTimeout(function () {
+    icon.textContent  = "✅";
+    icon.classList.remove("spinning");
+    icon.style.background = "var(--green-dim)";
+    title.textContent = "¡Pago confirmado!";
+    msg.textContent   = "Tu plan ha sido activado. El dashboard reflejará el nuevo plan en el próximo ciclo de actualización.";
+    btn.style.display = "inline-block";
+    tick();
+  }, 1200);
+})();
+</script>
+</body>
+</html>
