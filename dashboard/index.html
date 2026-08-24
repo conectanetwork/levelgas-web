@@ -976,12 +976,21 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
    DEVICE & TIMEZONE
 ═══════════════════════════════════════════ */
 const params = new URLSearchParams(window.location.search);
+/* PARCHE [2026-08-23]: normalizar la MAC antes de usarla como clave de
+   búsqueda. Flow devuelve la MAC con guiones (campo `optional`) y los RPC
+   comparan device_mac literalmente: access_key_exists('38-44-BE-8B-A3-00')
+   devuelve FALSE aunque el equipo sí tenga clave, y el dashboard concluye
+   —erróneamente— que hay que crear una nueva. */
+function _normalizarMac(valor){
+    const hex = String(valor || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+    if (hex.length !== 12) return '';
+    return hex.match(/.{2}/g).join(':');
+}
 const rawDevice = params.get('device') || localStorage.getItem('device_mac') || '';
-const _macParts  = rawDevice.split(':');
-const device     = _macParts.length >= 6
-    ? _macParts.slice(0, 6).join(':')
-    : rawDevice;
+const device    = _normalizarMac(rawDevice);
 if (device) localStorage.setItem('device_mac', device);
+// flow-return marca el retorno de pago para poder dar un mensaje específico.
+window._vieneDePago = params.get('pago') === 'ok' || params.get('plan_ok') === '1';
 /* ── PARCHE [seguridad 2026-08-22]: la clave ya no se acepta por URL ──────
    ANTES: params.get('key') || params.get('activation_key'). Una URL compartida
    filtraba la clave por el historial del navegador y por la cabecera Referer.
@@ -1051,8 +1060,14 @@ function _existeClaveRemota(){
     if (window._accessKeyExistsRemote === false) return false;
     return !!_claveGuardada();
 }
+/* PARCHE [2026-08-23]: el modo "crear clave" ya no se infiere de la ausencia
+   de clave local. Antes, cualquier terminal sin localStorage —volver del pago
+   en otro origen, PWA reinstalada, navegador nuevo— caía aquí y se le ofrecía
+   crear una clave nueva a un equipo que ya tenía una. Ahora exige que el
+   servidor haya respondido explícitamente que NO hay clave. */
 function _modoCrearClave(){
-    return window._forceCreateAccessKey || !_existeClaveRemota();
+    if (window._forceCreateAccessKey) return true;
+    return window._accessKeyExistsRemote === false;
 }
 function _prepararModalIngreso(reconexion=false){
     const crear = _modoCrearClave();
@@ -1129,7 +1144,12 @@ async function _iniciarDashboardTrasAcceso(){
    columna. Compatibilidad: si los RPC no existen aún, cae al camino anterior.
 ═══════════════════════════════════════════════════════════════════════════ */
 async function _guardarClaveRemota(valor, correoRecuperacion){
-    if (!device) return true;
+    /* PARCHE [2026-08-23]: antes devolvía true sin device — decía "clave
+       guardada" sin escribir nada, y la clave quedaba solo en ese navegador. */
+    if (!device){
+        alert('No se puede guardar la clave: esta sesión no tiene un equipo identificado.');
+        return false;
+    }
     try {
         if (window._accessRpcDisponible !== false){
             const { data, error } = await db.rpc('set_access_key', {
@@ -3505,7 +3525,15 @@ if (sf) document.getElementById("full-weight").value=sf;
         } catch(e){ /* migración 202608110001 sin aplicar: se pedirá el correo igualmente */ }
         try {
             if (window._accessRpcDisponible !== false){
-                const { data, error } = await db.rpc('access_key_exists', { p_device_mac: device });
+                /* PARCHE [2026-08-23]: hasta 3 intentos. Un fallo de red dejaba
+                   _accessKeyExistsRemote en null y el modal caía en "crear". */
+                let data = null, error = null;
+                for (let intento = 1; intento <= 3; intento++){
+                    ({ data, error } = await db.rpc('access_key_exists', { p_device_mac: device }));
+                    if (!error || _rpcNoDisponible(error)) break;
+                    console.warn('[init:access_key] intento ' + intento, error.message || error);
+                    if (intento < 3) await new Promise(r => setTimeout(r, 500 * intento));
+                }
                 if (!error){
                     window._accessRpcDisponible   = true;
                     window._accessKeyExistsRemote = (data === true);
@@ -3524,6 +3552,7 @@ if (sf) document.getElementById("full-weight").value=sf;
                     window._accessRpcDisponible = false;
                     console.warn('[init:access_key] RPC no disponible — usando lectura directa (aplica la migración 202608100002).');
                 } else {
+                    // Sigue sin respuesta: se queda en "ingresar clave", nunca en "crear".
                     console.warn('[init:access_key]', error.message || error);
                 }
             }

@@ -80,7 +80,11 @@ p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:20px}
   // Extraer device desde query string (urlReturn lo incluye)
   const params  = new URLSearchParams(window.location.search);
   const device  = params.get("device") || "";
-  const dashUrl = "https://levelgas.cl/dashboard/" +
+  /* PARCHE [2026-08-23]: usar el MISMO origen que esta página. Estaba fijo en
+     https://levelgas.cl mientras el sitio se sirve desde www.levelgas.cl: el
+     salto de origen vaciaba localStorage en cada retorno de pago y el
+     dashboard arrancaba sin clave guardada. */
+  const dashUrl = window.location.origin + "/dashboard/" +
                   (device ? "?device=" + encodeURIComponent(device) + "&plan_ok=1" : "?plan_ok=1");
 
   const icon  = document.getElementById("icon");
