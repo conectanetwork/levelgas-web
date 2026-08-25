@@ -1177,25 +1177,16 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                 if (correoRecuperacion) window._tieneCorreoRecuperacion = true;
                 return true;
             }
-            if (!_rpcNoDisponible(error)){
-                console.warn('[access_key:set_rpc]', error.message || error);
-                alert('No se pudo guardar la clave en la nube.');
-                return false;
-            }
-            window._accessRpcDisponible = false;
-            console.warn('[access_key] RPC set_access_key no disponible — usando UPDATE directo (aplica la migración 202608100002).');
-        }
-        const { error } = await db.from('devices')
-            .update({ access_key: valor })
-            .eq('device_mac', device);
-        if (error){
-            console.warn('[access_key:update]', error.message || error);
-            alert('No se pudo guardar la clave en la nube. Verifica que exista la columna access_key en devices.');
+            /* PARCHE [seguridad 2026-08-23]: se elimina el UPDATE directo de
+               respaldo. anon ya no puede escribir access_key —esa es justamente
+               la puerta que se cerró— y el fallback solo habría producido un
+               error de permisos confuso en vez de un mensaje claro. */
+            console.warn('[access_key:set_rpc]', error.message || error);
+            alert('No se pudo guardar la clave en la nube. Inténtalo de nuevo; si persiste, avisa a soporte.');
             return false;
         }
-        window._accessKeyRemote       = valor;
-        window._accessKeyExistsRemote = true;
-        return true;
+        alert('No se pudo guardar la clave: el servidor no tiene disponible set_access_key.');
+        return false;
     } catch(e){
         console.warn('[access_key:update] error:', e);
         alert('No se pudo guardar la clave en la nube.');
@@ -1220,27 +1211,13 @@ async function _validarClaveLocalContraSupabase(){
                 if (r === 'no_coincide'){ window._accessKeyExistsRemote = true; return { ok:false, motivo:'clave_desactualizada' }; }
                 return { ok:false, motivo:'error' };
             }
-            if (!_rpcNoDisponible(error)){
-                console.warn('[access_key:verify_rpc]', error.message || error);
-                return { ok:false, motivo:'error' };
-            }
-            window._accessRpcDisponible = false;
-            console.warn('[access_key] RPC verify_access_key no disponible — usando comparación local (aplica la migración 202608100002).');
-        }
-        const { data, error } = await db.from('devices')
-            .select('access_key')
-            .eq('device_mac', device)
-            .maybeSingle();
-        if (error){
-            console.warn('[access_key:validate]', error.message || error);
+            /* PARCHE [seguridad 2026-08-23]: sin lectura directa de respaldo.
+               La comparación de claves ocurre en el servidor; anon ya no puede
+               leer access_key. */
+            console.warn('[access_key:verify_rpc]', error.message || error);
             return { ok:false, motivo:'error' };
         }
-        const remota = (data?.access_key || '').trim();
-        window._accessKeyRemote       = remota || null;
-        window._accessKeyExistsRemote = !!remota;
-        if (!remota) return { ok:false, motivo:'sin_clave_remota' };
-        if (remota !== local) return { ok:false, motivo:'clave_desactualizada' };
-        return { ok:true };
+        return { ok:false, motivo:'error' };
     } catch(e){
         console.warn('[access_key:validate] error:', e);
         return { ok:false, motivo:'error' };
@@ -1284,17 +1261,15 @@ async function resetClaveAcceso(){
                         alert('No se pudo resetear la clave: este terminal no tiene la clave actual.\n\nHazlo desde un terminal con la clave vigente, o pide el reset al soporte.');
                         return;
                     }
-                } else if (_rpcNoDisponible(error)){
-                    window._accessRpcDisponible = false;
-                    console.warn('[resetClave] RPC no disponible — usando UPDATE directo.');
-                    await db.from('devices').update({ access_key: null }).eq('device_mac', device);
                 } else {
+                    // PARCHE [seguridad 2026-08-23]: sin UPDATE directo de respaldo.
                     console.warn('[resetClave:rpc]', error.message || error);
                     alert('No se pudo resetear la clave en la nube. Intenta de nuevo.');
                     return;
                 }
             } else {
-                await db.from('devices').update({ access_key: null }).eq('device_mac', device);
+                alert('No se pudo resetear la clave: el servidor no tiene disponible reset_access_key.');
+                return;
             }
         } catch(e){
             console.warn('[resetClave:remote]', e);
@@ -3175,8 +3150,11 @@ function checkPlanExpiry(expiresAt, plan){
     const exp=new Date(expiresAt), now=new Date();
     const ep  = document.getElementById("expiry-warn");
     if (now > exp){
-        db.from("devices").update({plan:'free', expires_at:null})
-          .eq("device_id",window.currentDeviceId);
+        /* PARCHE [seguridad 2026-08-23]: el cliente ya no degrada el plan.
+           anon perdió el UPDATE sobre plan y expires_at —si pudiera escribirlos,
+           cualquiera podría regalarse plan empresa— y el cron horario
+           enforce_plan_expiration() ya hace esto del lado del servidor.
+           Aquí solo se refleja el vencimiento en pantalla. */
         cleanupOnExpiry(window.currentDeviceId, plan);
         ep.innerText="Plan vencido — renovar"; ep.classList.add("on");
         return "free";
@@ -3195,12 +3173,10 @@ async function cleanupOnExpiry(deviceId, plan){
     try {
         const { error } = await db.rpc('cleanup_device_data', { p_device_id: deviceId });
         if (error){
+            /* PARCHE [seguridad 2026-08-23]: sin borrado directo de respaldo.
+               La limpieza es server-side: cleanup_device_data (SECURITY DEFINER)
+               más el cron diario cleanup_expired_plans. */
             console.warn("RPC cleanup_device_data no disponible:", error.message);
-            await db.from("sensor_data").delete().eq("device_id", deviceId);
-            await db.from("cylinder_events").delete().eq("device_id", deviceId);
-            await db.from("devices")
-                    .update({ plan: 'free', expires_at: null, current_cycle: 1 })
-                    .eq("device_id", deviceId);
         } else {
             console.log("✅ Datos eliminados correctamente al vencer el plan");
         }
@@ -3218,8 +3194,18 @@ async function getPlan(){
     }
     document.getElementById("dp-mac").innerText = device;
     const hdM = document.getElementById("hd-mac"); if(hdM) hdM.innerText = device;
+    /* PARCHE [seguridad 2026-08-23]: columnas explícitas en vez de "*".
+       anon ya no tiene SELECT sobre access_key, activation_key, user_email ni
+       user_phone; un "select *" chocaría con esas columnas y fallaría entero.
+       De paso, el dashboard deja de descargar credenciales que nunca usó. */
+    const COLUMNAS_DEVICE = [
+        'device_id','device_mac','plan','expires_at','activated','activated_at','created_at',
+        'empty_weight','full_weight','current_cycle','last_calibration',
+        'email','phone','consumo_diario_g','consumo_updated_at',
+        'battery_percentage','battery_voltage','last_seen_at','wifi_ssid','sensor_ok','firmware'
+    ].join(',');
     const { data, error: planErr } = await db.from("devices")
-        .select("*")
+        .select(COLUMNAS_DEVICE)
         .filter("device_mac","eq",device).maybeSingle();
     if (planErr){
         console.error("getPlan Supabase error:", planErr);
@@ -3236,8 +3222,8 @@ async function getPlan(){
     window.currentDeviceData = data;
     window.currentDeviceId = data.device_id;
     window.currentCycle    = null;
-    // Cargar clave remota para que cualquier terminal pueda verificar (no solo crear)
-    if (data.access_key) window._accessKeyRemote = data.access_key.trim();
+    // PARCHE [seguridad 2026-08-23]: la clave ya no se descarga nunca.
+    // La verificación es server-side, vía el RPC verify_access_key.
     if (data.empty_weight){ document.getElementById("empty-weight").value=data.empty_weight; localStorage.setItem("empty",data.empty_weight); }
     if (data.full_weight) { document.getElementById("full-weight").value =data.full_weight;  localStorage.setItem("full", data.full_weight);  }
     if (data.email){ const em=document.getElementById("empresa-email"); if(em) em.value=data.email; }
@@ -3548,35 +3534,12 @@ if (sf) document.getElementById("full-weight").value=sf;
                             window._forceCreateAccessKey = false;
                         }
                     }
-                } else if (_rpcNoDisponible(error)){
-                    window._accessRpcDisponible = false;
-                    console.warn('[init:access_key] RPC no disponible — usando lectura directa (aplica la migración 202608100002).');
                 } else {
-                    // Sigue sin respuesta: se queda en "ingresar clave", nunca en "crear".
+                    /* PARCHE [seguridad 2026-08-23]: se elimina la lectura
+                       directa de access_key como respaldo. Sin respuesta del
+                       RPC el modal se queda en "ingresar clave", nunca en
+                       "crear", y jamás se descarga el hash al navegador. */
                     console.warn('[init:access_key]', error.message || error);
-                }
-            }
-            if (window._accessRpcDisponible === false){
-                const { data: dv } = await db.from('devices')
-                    .select('access_key').eq('device_mac', device).maybeSingle();
-                if (dv?.access_key){
-                    window._accessKeyRemote       = dv.access_key.trim();
-                    window._accessKeyExistsRemote = true;
-                    const local = _claveLocal();
-                    if (local && local !== window._accessKeyRemote){
-                        // Clave local obsoleta: limpiar silenciosamente.
-                        // El modal pedirá la clave actual sin modo "crear".
-                        _borrarClaveLocal();
-                        window._forceCreateAccessKey = false;
-                    } else if (local){
-                        claveLocalValida = true;
-                    }
-                } else {
-                    // No hay clave en Supabase: modo crear clave.
-                    window._accessKeyRemote       = null;
-                    window._accessKeyExistsRemote = false;
-                    window._forceCreateAccessKey  = true;
-                    _borrarClaveLocal();
                 }
             }
         } catch(e){ console.warn('[init:access_key]', e); }
