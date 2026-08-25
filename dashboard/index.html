@@ -469,8 +469,11 @@ header{
          quien no la conoce, "¿Olvidaste tu clave?". Ambos pasan por el correo. -->
     <button class="btn-qr-hdr" onclick="cambiarClave()" title="Cambiar la clave de acceso"><i class="fas fa-key"></i> Cambiar clave</button>
     <button class="btn-qr-hdr" onclick="cambiarCorreo()" title="Registrar o cambiar el correo de recuperación"><i class="fas fa-envelope"></i> Correo de recuperación</button>
-    <!-- Solo para equipos devueltos: pide el secreto de fábrica, no la clave del equipo. -->
-    <button class="btn-qr-hdr" onclick="borradoDeFabrica()" title="Borrado de fábrica para equipos devueltos (pide el secreto de fábrica)"><i class="fas fa-box-open"></i> Borrado de fábrica</button>
+    <!-- PARCHE [2026-08-25]: se retira "Borrado de fábrica" de la interfaz.
+         FACTORY_SECRET no está configurado, así que el botón solo podía dar
+         error, y los equipos devueltos se limpian desde el panel de Supabase.
+         La acción factory_reset sigue viva en la edge function por si algún
+         día se quiere volver a exponer. -->
     <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i> QR</button>
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
@@ -1578,57 +1581,9 @@ function cambiarCorreo(){
     abrirRecuperacion('correo');
 }
 
-/* Borrado de fábrica: para básculas devueltas, donde ya no se tiene acceso al
-   correo del dueño anterior. La autorización NO es la clave del equipo —eso
-   reabriría el agujero que cerramos— sino un secreto que solo conoce la
-   fábrica, que valida la edge function contra FACTORY_SECRET. */
-async function borradoDeFabrica(){
-    if (!device){ alert('Sin MAC en la URL.'); return; }
-    if (!confirm('¿Borrado de fábrica de ' + device + '?\n\n'
-               + '· Se borrará la clave de acceso\n'
-               + '· Se borrará el correo de recuperación\n\n'
-               + 'Es para equipos devueltos. Requiere el secreto de fábrica.')) return;
-    const secreto = prompt('Secreto de fábrica:');
-    if (!secreto) return;
-    try {
-        const r = await fetch(RECOVERY_FN_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'factory_reset', device_mac: device, secret: secreto })
-        });
-        const d = await r.json();
-        if (!d.ok){ alert(d.mensaje || 'No se pudo borrar el equipo.'); return; }
-        _borrarClaveLocal();
-        window._accessKeyRemote         = null;
-        window._accessKeyExistsRemote   = false;
-        window._tieneCorreoRecuperacion = false;
-        window._accessGranted           = false;
-        window._forceCreateAccessKey    = true;
-        _finalizarSesionConsulta();
-        alert('Equipo borrado. Queda sin clave ni correo, listo para volver a fábrica.');
-        abrirModalIngreso(false);
-    } catch(e){
-        console.warn('[factory_reset]', e);
-        alert('No se pudo contactar con el servidor.');
-    }
-}
-
-/* PARCHE [seguridad 2026-08-24]: la entrega ya no se hace con la clave actual.
-   handover_to_client borraba clave Y correo con solo conocer la clave, así que
-   quien la supiera podía registrar su propio correo y quedarse con el equipo de
-   forma permanente. Ahora pasa por código al correo registrado —en fábrica, el
-   del operario— vía access-recovery/confirm_handover. El RPC directo ya no es
-   ejecutable por anon. */
-async function prepararParaCliente(){
-    if (!device){ alert('Sin MAC en la URL.'); return; }
-    if (!confirm('¿Preparar esta báscula para entregarla al cliente?\n\n'
-               + '· Se borrará la clave de acceso\n'
-               + '· Se borrará el correo de recuperación\n\n'
-               + 'Te enviaremos un código al correo de recuperación actual para confirmarlo.\n\n'
-               + 'Úsalo solo al terminar el proceso de fábrica.')) return;
-    abrirRecuperacion('entrega');
-}
-
+/* PARCHE [2026-08-25]: prepararParaCliente() retirada junto con el botón de
+   borrado. Con el modelo de fábrica —clave fija y sin correo— no hay nada que
+   borrar antes de entregar: la báscula ya sale limpia. */
 const CHILE_OFFSET_H = -4;
 function toChileDate(iso) {
     let s = iso.replace(' ', 'T');
