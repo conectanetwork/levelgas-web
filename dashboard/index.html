@@ -463,10 +463,14 @@ header{
     <div id="bat-low-badge" class="bat-low-badge"><i class="fas fa-exclamation-triangle"></i> Batería baja</div>
     <span id="expiry-warn" class="expiry-pill"></span>
     <span id="plan-badge" style="display:none"></span>
-    <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
-    <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
-         el nuevo dueño esté obligado a poner el suyo. Para el final del proceso de fábrica. -->
-    <button class="btn-qr-hdr" onclick="prepararParaCliente()" title="Borra clave y correo para entregar la báscula a su dueño"><i class="fas fa-box-open"></i> Preparar para el cliente</button>
+    <!-- PARCHE [seguridad 2026-08-24]: se elimina "Reset de clave". Dejaba la clave
+         en NULL, y con NULL se podía crear una nueva sin código: era la puerta
+         trasera de todo este modelo. Quien conoce la clave usa "Cambiar clave";
+         quien no la conoce, "¿Olvidaste tu clave?". Ambos pasan por el correo. -->
+    <button class="btn-qr-hdr" onclick="cambiarClave()" title="Cambiar la clave de acceso"><i class="fas fa-key"></i> Cambiar clave</button>
+    <button class="btn-qr-hdr" onclick="cambiarCorreo()" title="Registrar o cambiar el correo de recuperación"><i class="fas fa-envelope"></i> Correo de recuperación</button>
+    <!-- Solo para equipos devueltos: pide el secreto de fábrica, no la clave del equipo. -->
+    <button class="btn-qr-hdr" onclick="borradoDeFabrica()" title="Borrado de fábrica para equipos devueltos (pide el secreto de fábrica)"><i class="fas fa-box-open"></i> Borrado de fábrica</button>
     <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i> QR</button>
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
@@ -516,7 +520,7 @@ header{
 <!-- ─── MODAL RECUPERACIÓN DE CLAVE (PARCHE seguridad 2026-08-22) ─── -->
 <div id="modal-recuperar" class="modal-acceso" style="display:none">
   <div class="modal-acceso-box">
-    <h3 style="margin:0 0 6px;color:var(--primary)"><i class="fas fa-envelope-open-text"></i> Recuperar acceso</h3>
+    <h3 id="rec-titulo" style="margin:0 0 6px;color:var(--primary)"><i class="fas fa-envelope-open-text"></i> Recuperar acceso</h3>
     <p id="rec-msg" style="margin:0 0 18px;color:#555;font-size:0.92rem;line-height:1.55">
       Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula.
     </p>
@@ -530,13 +534,19 @@ header{
         <label for="rec-codigo">Código de 6 dígitos</label>
         <input id="rec-codigo" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
       </div>
-      <div class="inp-grp" style="text-align:left;margin-bottom:10px">
-        <label for="rec-nueva">Clave nueva</label>
-        <input id="rec-nueva" type="password" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
+      <div id="rec-clave-grp">
+        <div class="inp-grp" style="text-align:left;margin-bottom:10px">
+          <label for="rec-nueva">Clave nueva</label>
+          <input id="rec-nueva" type="password" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
+        </div>
+        <div class="inp-grp" style="text-align:left;margin-bottom:10px">
+          <label for="rec-nueva2">Repetir clave nueva</label>
+          <input id="rec-nueva2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva">
+        </div>
       </div>
-      <div class="inp-grp" style="text-align:left;margin-bottom:10px">
-        <label for="rec-nueva2">Repetir clave nueva</label>
-        <input id="rec-nueva2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva">
+      <div id="rec-correo-grp" class="inp-grp" style="text-align:left;margin-bottom:10px;display:none">
+        <label for="rec-correo">Correo de recuperación nuevo</label>
+        <input id="rec-correo" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.cl">
       </div>
       <button id="rec-confirmar" class="btn-modal primary" onclick="confirmarCodigoRecuperacion()">
         <i class="fas fa-check"></i> Cambiar la clave
@@ -1162,6 +1172,13 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                 window._accessRpcDisponible  = true;
                 const r = (typeof data === 'string') ? data : (data === true ? 'ok' : 'clave_actual_incorrecta');
                 if (r !== 'ok'){
+                    if (r === 'requiere_codigo'){
+                        /* PARCHE [seguridad 2026-08-24]: esta báscula ya tiene clave.
+                           Cambiarla exige código al correo registrado. */
+                        alert('Esta báscula ya tiene una clave. Para cambiarla te enviaremos un código al correo de recuperación.');
+                        abrirRecuperacion('clave');
+                        return false;
+                    }
                     const motivos = {
                         clave_actual_incorrecta: 'No se pudo cambiar la clave: la clave actual no coincide. Usa "¿Olvidaste tu clave?" para recuperarla por correo.',
                         correo_requerido:        'Necesitas indicar un correo de recuperación para crear la clave.',
@@ -1240,51 +1257,12 @@ function _bloquearPorClaveInvalida(motivo){
     }
     abrirModalIngreso(false);
 }
-/* Reset de clave del MISMO dueño: borra la clave pero CONSERVA el correo de
-   recuperación, porque el titular no cambia. Para entregar la báscula a otra
-   persona hay que usar prepararParaCliente(), que borra ambos. */
-async function resetClaveAcceso(){
-    if (!confirm('¿Resetear la clave de este dashboard?\n\nSe borrará la clave guardada y se pedirá crear una nueva en todos los terminales.\n\nEl correo de recuperación se mantiene. Si vas a entregar la báscula a otra persona, usa "Preparar para el cliente".')) return;
-    const claveActual = _claveLocal();
-    // Borrar en Supabase ANTES de tocar el estado local: si el servidor rechaza el
-    // reset, el terminal conserva su clave y no queda en un limbo sin acceso.
-    if (device){
-        try {
-            if (window._accessRpcDisponible !== false){
-                const { data, error } = await db.rpc('reset_access_key', {
-                    p_device_mac:  device,
-                    p_current_key: claveActual || null
-                });
-                if (!error){
-                    window._accessRpcDisponible = true;
-                    if (data === false){
-                        alert('No se pudo resetear la clave: este terminal no tiene la clave actual.\n\nHazlo desde un terminal con la clave vigente, o pide el reset al soporte.');
-                        return;
-                    }
-                } else {
-                    // PARCHE [seguridad 2026-08-23]: sin UPDATE directo de respaldo.
-                    console.warn('[resetClave:rpc]', error.message || error);
-                    alert('No se pudo resetear la clave en la nube. Intenta de nuevo.');
-                    return;
-                }
-            } else {
-                alert('No se pudo resetear la clave: el servidor no tiene disponible reset_access_key.');
-                return;
-            }
-        } catch(e){
-            console.warn('[resetClave:remote]', e);
-            alert('No se pudo resetear la clave en la nube. Intenta de nuevo.');
-            return;
-        }
-    }
-    _borrarClaveLocal();
-    window._accessKeyRemote       = null;
-    window._accessKeyExistsRemote = false;
-    window._accessGranted         = false;
-    window._forceCreateAccessKey  = true;
-    _finalizarSesionConsulta();
-    abrirModalIngreso(false);
-}
+/* PARCHE [seguridad 2026-08-24]: resetClaveAcceso() eliminada.
+   Dejaba access_key en NULL, y con NULL set_access_key aceptaba un alta sin
+   código: era la puerta trasera que permitía a cualquiera con la clave
+   cambiarla sin pasar por el correo. El RPC reset_access_key ya no es
+   ejecutable por anon; queda solo para soporte con service_role.
+   Sustitutos en la interfaz: "Cambiar clave" y "¿Olvidaste tu clave?". */
 async function procesarIngresoClave(){
     if (!device){
         const deviceInput = document.getElementById('device-input');
@@ -1396,23 +1374,58 @@ async function procesarIngresoClave(){
 const RECOVERY_FN_URL = SUPABASE_URL + "/functions/v1/access-recovery";
 window._tieneCorreoRecuperacion = false;   // lo resuelve _iniciarConClave()
 
-function abrirRecuperacion(){
+/* PARCHE [seguridad 2026-08-24]: un solo modal para los tres cambios que
+   afectan el control del equipo. Los tres exigen código al correo registrado:
+     'clave'   — fijar una clave nueva (se sepa o no la actual)
+     'correo'  — mover el correo de recuperación
+     'entrega' — dejar la báscula sin clave ni correo, para el cliente
+   Antes bastaba conocer la clave, y con eso se podía secuestrar el equipo. */
+const REC_TEXTOS = {
+    clave:   { titulo: '<i class="fas fa-envelope-open-text"></i> Cambiar la clave',
+               boton:  '<i class="fas fa-check"></i> Cambiar la clave',
+               intro:  'Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula. Sin ese código la clave no cambia.' },
+    correo:  { titulo: '<i class="fas fa-envelope"></i> Cambiar el correo',
+               boton:  '<i class="fas fa-check"></i> Cambiar el correo',
+               intro:  'Te enviaremos un código al correo de recuperación ACTUAL. Hay que probar que lo controlas antes de moverlo.' },
+    entrega: { titulo: '<i class="fas fa-box-open"></i> Preparar para el cliente',
+               boton:  '<i class="fas fa-box-open"></i> Borrar clave y correo',
+               intro:  'Te enviaremos un código al correo de recuperación. Al confirmarlo, la báscula queda sin clave ni correo y el cliente registrará los suyos.' },
+};
+window._recModo = 'clave';
+
+function abrirRecuperacion(modo){
+    window._recModo = (modo === 'correo' || modo === 'entrega') ? modo : 'clave';
+    const t = REC_TEXTOS[window._recModo];
     document.getElementById('modal-acceso')?.classList.remove('open');
     const m = document.getElementById('modal-recuperar');
     if (!m) return;
     document.getElementById('rec-paso-1').style.display = '';
     document.getElementById('rec-paso-2').style.display = 'none';
+    const tit = document.getElementById('rec-titulo');
+    if (tit) tit.innerHTML = t.titulo;
+    const btn = document.getElementById('rec-confirmar');
+    if (btn) btn.innerHTML = t.boton;
+    const claveGrp  = document.getElementById('rec-clave-grp');
+    const correoGrp = document.getElementById('rec-correo-grp');
+    if (claveGrp)  claveGrp.style.display  = (window._recModo === 'clave')  ? '' : 'none';
+    if (correoGrp) correoGrp.style.display = (window._recModo === 'correo') ? '' : 'none';
+    ['rec-codigo','rec-nueva','rec-nueva2','rec-correo'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+    });
     const msg = document.getElementById('rec-msg');
     if (msg) msg.textContent = window._tieneCorreoRecuperacion
-        ? 'Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula.'
-        : 'Esta báscula no tiene correo de recuperación configurado. Si no recuerdas la clave, contacta con soporte.';
+        ? t.intro
+        : 'Esta báscula no tiene correo de recuperación configurado. Contacta con soporte.';
     m.style.display = '';
     m.classList.add('open');
 }
 function cerrarRecuperacion(){
     const m = document.getElementById('modal-recuperar');
     if (m){ m.classList.remove('open'); m.style.display = 'none'; }
-    abrirModalIngreso(false);
+    /* PARCHE [seguridad 2026-08-24]: si la sesión ya está abierta —el usuario
+       entró y solo quería cambiar la clave o el correo— cancelar no debe
+       echarlo al modal de acceso. */
+    if (!window._accessGranted) abrirModalIngreso(false);
 }
 async function solicitarCodigoRecuperacion(){
     const btn = document.getElementById('rec-enviar');
@@ -1423,7 +1436,7 @@ async function solicitarCodigoRecuperacion(){
         const r = await fetch(RECOVERY_FN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'request', device_mac: device })
+            body: JSON.stringify({ action: 'request', device_mac: device, purpose: window._recModo || 'clave' })
         });
         const d = await r.json();
         if (msg) msg.textContent = (d.mensaje || 'Solicitud enviada.')
@@ -1443,38 +1456,89 @@ async function solicitarCodigoRecuperacion(){
     }
 }
 async function confirmarCodigoRecuperacion(){
+    const modo   = window._recModo || 'clave';
     const codigo = (document.getElementById('rec-codigo')?.value || '').trim();
     const nueva  = (document.getElementById('rec-nueva')?.value  || '').trim();
     const nueva2 = (document.getElementById('rec-nueva2')?.value || '').trim();
+    const correo = (document.getElementById('rec-correo')?.value || '').trim();
     if (!/^\d{6}$/.test(codigo)){ alert('El código son 6 dígitos.'); return; }
-    if (nueva.length < 4){ alert('La clave nueva debe tener al menos 4 caracteres.'); return; }
-    if (nueva !== nueva2){ alert('Las claves no coinciden.'); return; }
+
+    let cuerpo;
+    if (modo === 'clave'){
+        if (nueva.length < 4){ alert('La clave nueva debe tener al menos 4 caracteres.'); return; }
+        if (nueva !== nueva2){ alert('Las claves no coinciden.'); return; }
+        cuerpo = { action: 'confirm', device_mac: device, code: codigo, new_key: nueva };
+    } else if (modo === 'correo'){
+        if (!correo.includes('@')){ alert('Indica un correo válido.'); return; }
+        cuerpo = { action: 'confirm_email', device_mac: device, code: codigo, new_email: correo };
+    } else {
+        cuerpo = { action: 'confirm_handover', device_mac: device, code: codigo };
+    }
+
     const btn = document.getElementById('rec-confirmar');
     const old = btn?.innerHTML;
     if (btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...'; }
+
+    /* PARCHE [seguridad 2026-08-24]: el try/catch cubre SOLO la llamada de red.
+       Antes envolvía también el arranque del dashboard, así que un fallo
+       posterior se reportaba como "no se pudo contactar con el servidor"
+       cuando el cambio de clave sí se había guardado — el peor mensaje
+       posible, porque invita a repetir la operación. */
+    let d;
     try {
         const r = await fetch(RECOVERY_FN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'confirm', device_mac: device, code: codigo, new_key: nueva })
+            body: JSON.stringify(cuerpo)
         });
-        const d = await r.json();
-        if (!d.ok){ alert(d.mensaje || 'No se pudo validar el código.'); return; }
+        d = await r.json();
+    } catch(e){
+        console.warn('[recuperacion:confirm]', e);
+        alert('No se pudo contactar con el servidor. Inténtalo de nuevo.');
+        return;
+    } finally {
+        if (btn){ btn.disabled = false; if (old) btn.innerHTML = old; }
+    }
+
+    if (!d || !d.ok){ alert((d && d.mensaje) || 'No se pudo validar el código.'); return; }
+
+    try {
+        const m = document.getElementById('modal-recuperar');
+        if (m){ m.classList.remove('open'); m.style.display = 'none'; }
+
+        if (modo === 'correo'){
+            window._tieneCorreoRecuperacion = true;
+            alert('Correo de recuperación actualizado.');
+            if (!window._accessGranted) abrirModalIngreso(false);
+            return;
+        }
+
+        if (modo === 'entrega'){
+            _borrarClaveLocal();
+            window._accessKeyRemote         = null;
+            window._accessKeyExistsRemote   = false;
+            window._tieneCorreoRecuperacion = false;
+            window._accessGranted           = false;
+            window._forceCreateAccessKey    = true;
+            _finalizarSesionConsulta();
+            alert('Listo. La báscula quedó sin clave ni correo: el cliente creará los suyos al abrir el dashboard.');
+            abrirModalIngreso(false);
+            return;
+        }
+
+        // modo 'clave'
         _guardarClaveLocal(nueva);
         window._accessKeyExistsRemote = true;
         window._forceCreateAccessKey  = false;
-        const m = document.getElementById('modal-recuperar');
-        if (m){ m.classList.remove('open'); m.style.display = 'none'; }
-        window._accessGranted = true;
-        window._modalReconnectOnly = false;
+        window._accessGranted         = true;
+        window._modalReconnectOnly    = false;
         _modalAcceso(false);
         await _iniciarDashboardTrasAcceso();
         _renovarSesionConsulta();
     } catch(e){
-        console.warn('[recuperacion:confirm]', e);
-        alert('No se pudo contactar con el servidor. Inténtalo de nuevo.');
-    } finally {
-        if (btn){ btn.disabled = false; if (old) btn.innerHTML = old; }
+        // La clave YA quedó cambiada; esto es un fallo al pintar el dashboard.
+        console.warn('[recuperacion:post]', e);
+        alert('La clave se actualizó correctamente, pero hubo un problema al cargar el dashboard. Recarga la página.');
     }
 }
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1485,47 +1549,86 @@ async function confirmarCodigoRecuperacion(){
    suyos en el primer arranque. Exige la clave vigente, así que solo puede
    hacerlo quien acaba de crearla.
 ═══════════════════════════════════════════════════════════════════════════ */
+/* PARCHE [2026-08-25]: el correo de recuperación es la raíz de confianza.
+
+   Sin correo registrado — estado de fábrica. No hay a quién mandarle un código,
+   así que la clave se fija directo con set_access_key (que exige la clave
+   actual si ya hay una). El operario entra con la clave fija, verifica que el
+   equipo transmite y empaqueta: no registra correo, así que no hay nada que
+   borrar después.
+
+   Con correo registrado — estado del cliente. Todo cambio exige código. El
+   equipo se blinda solo en cuanto el cliente registra el suyo. */
+function _sinCorreoRegistrado(){ return !window._tieneCorreoRecuperacion; }
+
+function _abrirAltaDirecta(){
+    window._forceCreateAccessKey = true;
+    abrirModalIngreso(false);
+}
+
+function cambiarClave(){
+    if (_sinCorreoRegistrado()) return _abrirAltaDirecta();
+    abrirRecuperacion('clave');
+}
+
+function cambiarCorreo(){
+    // Sin correo aún, se registra junto con la clave y sin código: no existe
+    // todavía una dirección contra la que verificar.
+    if (_sinCorreoRegistrado()) return _abrirAltaDirecta();
+    abrirRecuperacion('correo');
+}
+
+/* Borrado de fábrica: para básculas devueltas, donde ya no se tiene acceso al
+   correo del dueño anterior. La autorización NO es la clave del equipo —eso
+   reabriría el agujero que cerramos— sino un secreto que solo conoce la
+   fábrica, que valida la edge function contra FACTORY_SECRET. */
+async function borradoDeFabrica(){
+    if (!device){ alert('Sin MAC en la URL.'); return; }
+    if (!confirm('¿Borrado de fábrica de ' + device + '?\n\n'
+               + '· Se borrará la clave de acceso\n'
+               + '· Se borrará el correo de recuperación\n\n'
+               + 'Es para equipos devueltos. Requiere el secreto de fábrica.')) return;
+    const secreto = prompt('Secreto de fábrica:');
+    if (!secreto) return;
+    try {
+        const r = await fetch(RECOVERY_FN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'factory_reset', device_mac: device, secret: secreto })
+        });
+        const d = await r.json();
+        if (!d.ok){ alert(d.mensaje || 'No se pudo borrar el equipo.'); return; }
+        _borrarClaveLocal();
+        window._accessKeyRemote         = null;
+        window._accessKeyExistsRemote   = false;
+        window._tieneCorreoRecuperacion = false;
+        window._accessGranted           = false;
+        window._forceCreateAccessKey    = true;
+        _finalizarSesionConsulta();
+        alert('Equipo borrado. Queda sin clave ni correo, listo para volver a fábrica.');
+        abrirModalIngreso(false);
+    } catch(e){
+        console.warn('[factory_reset]', e);
+        alert('No se pudo contactar con el servidor.');
+    }
+}
+
+/* PARCHE [seguridad 2026-08-24]: la entrega ya no se hace con la clave actual.
+   handover_to_client borraba clave Y correo con solo conocer la clave, así que
+   quien la supiera podía registrar su propio correo y quedarse con el equipo de
+   forma permanente. Ahora pasa por código al correo registrado —en fábrica, el
+   del operario— vía access-recovery/confirm_handover. El RPC directo ya no es
+   ejecutable por anon. */
 async function prepararParaCliente(){
     if (!device){ alert('Sin MAC en la URL.'); return; }
     if (!confirm('¿Preparar esta báscula para entregarla al cliente?\n\n'
                + '· Se borrará la clave de acceso\n'
                + '· Se borrará el correo de recuperación\n\n'
-               + 'El cliente deberá crear su propia clave y registrar SU correo '
-               + 'la primera vez que abra el dashboard.\n\n'
+               + 'Te enviaremos un código al correo de recuperación actual para confirmarlo.\n\n'
                + 'Úsalo solo al terminar el proceso de fábrica.')) return;
-    try {
-        const { data, error } = await db.rpc('handover_to_client', {
-            p_device_mac:  device,
-            p_current_key: _claveLocal() || null
-        });
-        if (error){
-            if (_rpcNoDisponible(error)){
-                alert('Esta función requiere la migración 202608110001. Aplícala en Supabase antes de usarla.');
-            } else {
-                console.warn('[handover]', error.message || error);
-                alert('No se pudo preparar la báscula. Inténtalo de nuevo.');
-            }
-            return;
-        }
-        if (data === false){
-            alert('No se pudo preparar la báscula: este terminal no tiene la clave vigente.\n\n'
-                + 'Hazlo desde el terminal donde creaste la clave.');
-            return;
-        }
-        _borrarClaveLocal();
-        window._accessKeyRemote          = null;
-        window._accessKeyExistsRemote    = false;
-        window._tieneCorreoRecuperacion  = false;
-        window._accessGranted            = false;
-        window._forceCreateAccessKey     = true;
-        _finalizarSesionConsulta();
-        alert('Listo. La báscula quedó sin clave ni correo: el cliente creará los suyos al abrir el dashboard.');
-        abrirModalIngreso(false);
-    } catch(e){
-        console.warn('[handover] error:', e);
-        alert('No se pudo preparar la báscula.');
-    }
+    abrirRecuperacion('entrega');
 }
+
 const CHILE_OFFSET_H = -4;
 function toChileDate(iso) {
     let s = iso.replace(' ', 'T');
