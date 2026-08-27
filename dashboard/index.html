@@ -1582,6 +1582,34 @@ function getChileMidnights() {
     return { todayMid, yestMid };
 }
 function pad(n){ return String(n).padStart(2, '0'); }
+/* ═══════════════════════════════════════════
+   BASE DEL PESO   [PARCHE 2026-08-27]
+   ───────────────────────────────────────────
+   El firmware envia `weight` YA NETO cuando el equipo tiene configurados sus
+   pesos de cilindro —y en ese caso `empty_weight` viaja dentro de la lectura—.
+   Si no los tiene, envia el BRUTO y `empty_weight` llega en 0. Hoy todos los
+   equipos estan en el segundo caso y la tara sale del dashboard, pero el dia
+   que se configuren los pesos de un equipo (o se flashee v81.00, que se niega
+   a enviar sin ellos) el dashboard restaria la tara dos veces y mostraria el
+   cilindro vacio con gas adentro, ademas de registrar una caida falsa del
+   tamano de la tara en el grafico de consumo.
+   La propia fila dice en que base viene, asi que no hay que adivinar. TODO
+   calculo debe pasar por aqui ANTES de restar lecturas entre si. */
+function _netoDe(row, tara){
+    const w = parseFloat(row?.weight);
+    if (!Number.isFinite(w)) return null;
+    const e = parseFloat(row?.empty_weight);
+    if (Number.isFinite(e) && e > 0) return Math.max(0, w);          // ya viene neto
+    const t = Number.isFinite(parseFloat(tara)) ? parseFloat(tara) : 0;
+    return Math.max(0, w - t);                                        // viene bruto
+}
+function _brutoDe(row, tara){
+    const w = parseFloat(row?.weight);
+    if (!Number.isFinite(w)) return null;
+    const e = parseFloat(row?.empty_weight);
+    if (Number.isFinite(e) && e > 0) return w + e;                    // el equipo ya resto la tara
+    return w;
+}
 function fmtDate(iso){
     const d = toChileDate(iso);
     return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
@@ -2048,14 +2076,15 @@ async function checkRecambioNoRegistrado(){
     try {
         const desde = new Date(Date.now() - 30 * 86400000).toISOString();
         const { data: lect } = await db.from("sensor_data")
-            .select("created_at,weight,cycle_id")
+            .select("created_at,weight,cycle_id,empty_weight")
             .eq("device_id", window.currentDeviceId)
             .gte("created_at", desde)
             .order("created_at", { ascending: true }).limit(5000);
         if (!lect || lect.length < 2){ box.classList.remove("on"); return; }
         const saltos = [];
+        const tara = parseFloat(localStorage.getItem("empty") || 0);
         for (let i = 1; i < lect.length; i++){
-            const alza = parseFloat(lect[i].weight) - parseFloat(lect[i-1].weight);
+            const alza = (_netoDe(lect[i], tara) ?? 0) - (_netoDe(lect[i-1], tara) ?? 0);
             if (alza >= RECAMBIO_KG_MIN) saltos.push({
                 t0: lect[i-1].created_at, t1: lect[i].created_at, alza,
                 ciclo0: lect[i-1].cycle_id, ciclo1: lect[i].cycle_id
@@ -2276,7 +2305,7 @@ async function updateDailyConsumption(existingData){
         // a cubrir ayer completo se consulta la ventana exacta.
         if (!pool.length || new Date(pool[0].created_at).getTime() > anclaMs){
             const { data: fb } = await db.from("sensor_data")
-                .select("weight,created_at")
+                .select("weight,created_at,empty_weight")
                 .eq("device_id", window.currentDeviceId)
                 .gte("created_at", new Date(anclaMs).toISOString())
                 .order("created_at", { ascending: true });
@@ -2304,8 +2333,9 @@ async function updateDailyConsumption(existingData){
         }
         if (src.length >= 2){
             let c = 0;
+            const tara = parseFloat(localStorage.getItem("empty") || 0);
             for (let i = 1; i < src.length; i++){
-                const d = parseFloat(src[i-1].weight) - parseFloat(src[i].weight);
+                const d = (_netoDe(src[i-1], tara) ?? 0) - (_netoDe(src[i], tara) ?? 0);
                 if (d > 0) c += d;          // las subidas son recarga, no consumo
             }
             if (el)    el.innerText    = c > 0.01 ? c.toFixed(2) + " kg" : "Sin consumo";
@@ -2367,7 +2397,7 @@ async function updateDaysRemaining(net){
             .eq("event_type", "cylinder_change")
             .order("created_at", { ascending: false }).limit(1);
         const leer = async (desde) => {
-            const { data, error } = await db.from("sensor_data").select("created_at,weight")
+            const { data, error } = await db.from("sensor_data").select("created_at,weight,empty_weight")
                 .eq("device_id", window.currentDeviceId)
                 .gte("created_at", desde).order("created_at", { ascending: true });
             if (error) throw error;
@@ -2389,8 +2419,9 @@ async function updateDaysRemaining(net){
             return;
         }
         let consumo = 0;
+        const tara = parseFloat(localStorage.getItem("empty") || 0);
         for (let i = 1; i < data.length; i++){
-            const d = parseFloat(data[i-1].weight) - parseFloat(data[i].weight);
+            const d = (_netoDe(data[i-1], tara) ?? 0) - (_netoDe(data[i], tara) ?? 0);
             if (d > 0) consumo += d;
         }
         const t0   = new Date(data[0].created_at).getTime();
@@ -2428,8 +2459,8 @@ function renderRecordsTable(data, empty){
     const rows = data.slice(0, 3);
     const full = parseFloat(localStorage.getItem("full") || 0);
     tbody.innerHTML = rows.map(r => {
-        const br  = parseFloat(r.weight || 0);
-        const ne  = Math.max(0, br - empty);   // neto real medido (puede superar el nominal)
+        const ne  = _netoDe(r, empty) ?? 0;    // neto real medido (puede superar el nominal)
+        const br  = _brutoDe(r, empty) ?? 0;
         const pct = full > empty ? Math.max(0, (ne/(full-empty))*100) : 0;  // gauge puede superar 100%
         const vRaw = parseFloat(r.battery_voltage || 0);
         const v    = vRaw * BAT_CAL_FACTOR + BAT_CAL_OFFSET;   // misma calibración que updateBattery()
@@ -2652,7 +2683,7 @@ async function _pollForFirstReading(){
     const empty   = parseFloat(localStorage.getItem('empty') || 0);
     const cycle   = window.currentCycle || 1;
     try {
-        const { data } = await db.from('sensor_data').select('weight,created_at')
+        const { data } = await db.from('sensor_data').select('weight,created_at,empty_weight')
             .eq('device_id', window.currentDeviceId)
             .eq('cycle_id', cycle)
             .order('created_at', { ascending: false }).limit(1);
@@ -2664,8 +2695,7 @@ async function _pollForFirstReading(){
         // Apagar el flag: ya llegó el primer dato del ciclo nuevo.
         // A partir de ahora updateAll() puede volver a sincronizar ciclos normalmente.
         window._awaitingFirstReading = false;
-        const w       = parseFloat(data[0].weight);
-        const realNeto = +(w - empty).toFixed(2);
+        const realNeto = +((_netoDe(data[0], empty) ?? 0)).toFixed(2);
         const diff     = +(calD.std - realNeto).toFixed(2);
         calD.real           = realNeto;
         calD.diff           = diff;
@@ -2800,8 +2830,19 @@ async function _chequearEstadoCompartido(){
         const remoteFull  = data.full_weight  != null ? parseFloat(data.full_weight)  : null;
 
         if (window._sharedCycle === null) window._sharedCycle = window.currentCycle || remoteCycle;
-        if (window._sharedEmpty === null && remoteEmpty !== null) window._sharedEmpty = remoteEmpty;
-        if (window._sharedFull  === null && remoteFull  !== null) window._sharedFull  = remoteFull;
+        // Al fijar la linea base tambien se aplica el valor remoto: si el
+        // navegador traia una tara vieja, aqui se corrige en vez de esperar a
+        // un cambio posterior que quiza nunca ocurra.
+        if (window._sharedEmpty === null && remoteEmpty !== null){
+            window._sharedEmpty = remoteEmpty;
+            localStorage.setItem("empty", remoteEmpty);
+            const eEl = document.getElementById("empty-weight"); if (eEl) eEl.value = remoteEmpty;
+        }
+        if (window._sharedFull === null && remoteFull !== null){
+            window._sharedFull = remoteFull;
+            localStorage.setItem("full", remoteFull);
+            const fEl = document.getElementById("full-weight"); if (fEl) fEl.value = remoteFull;
+        }
 
         const cycleChanged = remoteCycle && remoteCycle !== window._sharedCycle;
         const emptyChanged = remoteEmpty !== null && window._sharedEmpty !== null && Math.abs(remoteEmpty - window._sharedEmpty) > 0.001;
@@ -2914,15 +2955,14 @@ async function pollLatest(){
         const empty    = parseFloat(localStorage.getItem("empty") || document.getElementById("empty-weight").value || "0");
         const full     = parseFloat(localStorage.getItem("full")  || document.getElementById("full-weight").value  || "0");
         const { data, error } = await db.from("sensor_data")
-            .select("weight, battery_voltage, battery_percentage, created_at, cycle_id")
+            .select("weight, empty_weight, battery_voltage, battery_percentage, created_at, cycle_id")
             .eq("device_id", window.currentDeviceId)
             .order("created_at", { ascending: false })
             .limit(1);
         if (error){ console.warn("[pollLatest]", error); return; }
         if (!data?.length) return;
         const latest = data[0];
-        const w   = parseFloat(latest.weight) || 0;
-        const net = w > empty ? w - empty : 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
+        const net = _netoDe(latest, empty) ?? 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
         // Actualizar display
         window._lastKnownNet      = net;
@@ -2980,10 +3020,11 @@ function refreshChartVirtuals(){
         : 0;
     if (latestRow && (!chartRows.length || Date.now() - lastTs > 2 * 60 * 1000)) {
         chartRows.push({
-            created_at: new Date().toISOString(),
-            weight:     latestRow.weight,
-            cycle_id:   latestRow.cycle_id,
-            _virtual:   true
+            created_at:   new Date().toISOString(),
+            weight:       latestRow.weight,
+            empty_weight: latestRow.empty_weight,   // conserva la base de la lectura real
+            cycle_id:     latestRow.cycle_id,
+            _virtual:     true
         });
     }
 
@@ -2991,10 +3032,7 @@ function refreshChartVirtuals(){
     if (inner) inner.style.width = Math.max(inner.parentElement.clientWidth || 300, 300) + "px";
     updateChartColors(false);
     window.chartInstance.data.labels           = chartRows.map(r => fmtShort(r.created_at));
-    window.chartInstance.data.datasets[0].data = chartRows.map(r => {
-        const w = parseFloat(r.weight);
-        return isNaN(w) ? null : Math.max(0, w - empty);
-    });
+    window.chartInstance.data.datasets[0].data = chartRows.map(r => _netoDe(r, empty));
     updateChartYMax();
     window.chartInstance.update();
 }
@@ -3029,11 +3067,17 @@ async function updateAll(){
             if (!dd){ if(lrEl) lrEl.innerText="Dispositivo no registrado en Supabase"; return; }
             window.currentDeviceId = dd.device_id;
             window.currentCycle    = dd.current_cycle || 1;
-            if (!localStorage.getItem("empty") && dd.empty_weight){
+            /* PARCHE [2026-08-27]: la tara del servidor MANDA sobre la copia
+               local. Antes solo se copiaba si el navegador no tenia nada, asi
+               que un valor viejo -de otro cilindro o de otro equipo- se
+               quedaba pegado y ensuciaba en silencio los informes exportados
+               desde ese navegador. localStorage queda como respaldo para
+               cuando no hay respuesta del servidor. */
+            if (dd.empty_weight != null && dd.empty_weight !== ""){
                 localStorage.setItem("empty", dd.empty_weight);
                 document.getElementById("empty-weight").value = dd.empty_weight;
             }
-            if (!localStorage.getItem("full") && dd.full_weight){
+            if (dd.full_weight != null && dd.full_weight !== ""){
                 localStorage.setItem("full", dd.full_weight);
                 document.getElementById("full-weight").value = dd.full_weight;
             }
@@ -3071,7 +3115,7 @@ async function updateAll(){
         const full  = parseFloat(fullStr);
         const supportWindowIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         let { data, error: sErr } = await db.from("sensor_data")
-            .select("created_at, weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
+            .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
             .eq("device_id", window.currentDeviceId)
             .eq("cycle_id", cycle)
             .gte("created_at", supportWindowIso)
@@ -3082,7 +3126,7 @@ async function updateAll(){
         // Se usa para display, registros y el punto actual; nunca se dibuja con su fecha antigua.
         if (!data?.length) {
             const { data: latestFallback, error: latestFallbackErr } = await db.from("sensor_data")
-                .select("created_at, weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
+                .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
                 .eq("device_id", window.currentDeviceId)
                 .eq("cycle_id", cycle)
                 .order("created_at", { ascending: false })
@@ -3125,8 +3169,7 @@ async function updateAll(){
         }
         const latest = data[0];
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
-        const w   = parseFloat(latest.weight) || 0;
-        const net = w > empty ? w - empty : 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
+        const net = _netoDe(latest, empty) ?? 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
         // v80.77: guardar última medición conocida para retenerla entre ciclos
         window._lastKnownNet      = net;
@@ -3251,13 +3294,15 @@ function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
         if (!Number.isFinite(ms)) return;
         const b = get(ms); if (!b) return;
         b.n       += 1;
-        b.nivel    = Math.max(0, parseFloat(r.weight) - empty);   // ultimo nivel del periodo
+        b.nivel    = _netoDe(r, empty);          // ultimo nivel del periodo
         b.cycle_id = r.cycle_id;
     });
     for (let i = 1; i < rows.length; i++){
         const t0 = new Date(rows[i-1].created_at).getTime();
         const t1 = new Date(rows[i].created_at).getTime();
-        const dw = parseFloat(rows[i-1].weight) - parseFloat(rows[i].weight);
+        // Sobre el NETO: si la base cambia (el equipo pasa a enviar neto), el
+        // salto artificial del tamano de la tara no se cuenta como consumo.
+        const dw = (_netoDe(rows[i-1], empty) ?? 0) - (_netoDe(rows[i], empty) ?? 0);
         if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) continue;
         if (!(dw > 0)){
             if (dw < -0.5){ const b = get(t1); if (b) b.recargas += 1; }
@@ -3586,7 +3631,7 @@ async function exportCSV(){
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
         const h=`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-        const br=parseFloat(row.weight||0), ne=Math.max(0,br-empty), vo=parseFloat(row.battery_voltage||0);
+        const ne=_netoDe(row,empty)??0, br=_brutoDe(row,empty)??0, vo=parseFloat(row.battery_voltage||0);
         if (cy!==cc){
             if (cc!==null)
                 csv+=`\n"-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}"\n\n`;
@@ -3627,7 +3672,7 @@ function exportExcel(){
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
         const h=`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-        const br=parseFloat(row.weight||0), ne=Math.max(0,br-empty), vo=parseFloat(row.battery_voltage||0);
+        const ne=_netoDe(row,empty)??0, br=_brutoDe(row,empty)??0, vo=parseFloat(row.battery_voltage||0);
         if (cy!==cc){
             if(cc!==null){
                 r1.push([`-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}`,"","","","","","",""]);
