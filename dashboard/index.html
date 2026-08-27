@@ -272,6 +272,21 @@ header{
 .dp-plan-pill.hogar{background:var(--green);color:#fff;box-shadow:0 2px 10px rgba(16,185,129,.4)}
 .dp-plan-pill.empresa{background:var(--orange);color:#fff;box-shadow:0 2px 10px rgba(245,158,11,.4)}
 /* modal instrucción reset obligatorio */
+/* PARCHE [2026-08-27]: reinicio del contador e historial */
+.btn-reset-hist{width:100%;margin-top:12px;padding:9px;border-radius:8px;border:1.5px solid var(--red);background:transparent;color:var(--red);font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px;transition:background .15s}
+.btn-reset-hist:hover{background:var(--red-dim)}
+.rh-warn{background:var(--red-dim);border:1px solid var(--red);border-radius:8px;padding:11px 13px;font-size:12px;color:var(--red);line-height:1.55;margin-bottom:14px}
+.rh-list{font-size:12px;color:var(--muted);line-height:1.7;margin:0 0 16px;padding-left:18px}
+.rh-list li strong{color:var(--text)}
+.rh-backup{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px}
+.rh-backup .rh-bk-t{font-size:11.5px;font-weight:700;color:var(--text);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.rh-backup .rh-bk-b{display:flex;gap:8px}
+.rh-backup .rh-bk-b button{flex:1;padding:8px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px}
+.rh-backup .rh-bk-b button:hover{border-color:var(--primary);color:var(--primary)}
+.rh-err{display:none;font-size:11.5px;color:var(--red);margin-top:8px;line-height:1.45}
+.rh-err.on{display:block}
+.modal-contact-actions button.peligro{background:var(--red);color:#fff;border-color:var(--red)}
+.modal-contact-actions button:disabled{opacity:.55;cursor:not-allowed}
 .modal-reset-ov{position:fixed;inset:0;background:rgba(15,23,42,.78);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px}
 .modal-reset-ov.hidden{display:none}
 .reset-card{background:#fff;border-radius:18px;padding:38px 32px;max-width:430px;width:100%;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.35)}
@@ -316,6 +331,11 @@ header{
 .period-sel:focus{outline:none;border-color:var(--primary)}
 .alert-banner{display:none;align-items:center;gap:8px;padding:9px 12px;background:var(--red-dim);border:1px solid rgba(239,68,68,.3);border-radius:var(--radius-sm);font-size:12px;color:var(--red);margin-bottom:11px}
 .alert-banner.on{display:flex}
+/* PARCHE [2026-08-27]: aviso de cilindro nuevo sin registrar */
+.recambio-banner{display:none;align-items:flex-start;gap:8px;padding:9px 12px;background:var(--orange-dim);border:1px solid var(--orange);border-radius:var(--radius-sm);font-size:12px;color:#92400e;margin-bottom:11px;line-height:1.45}
+.recambio-banner.on{display:flex}
+.recambio-banner i{color:var(--orange);margin-top:2px;flex-shrink:0}
+.recambio-banner button{margin-left:auto;flex-shrink:0;background:var(--orange);color:#fff;border:0;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 .chart-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .chart-inner{height:240px;position:relative;min-width:100%}
 .chart-inner canvas{height:100%!important}
@@ -456,24 +476,17 @@ header{
 <!-- ═══ HEADER ═══ -->
 <header>
   <div class="hd-left">
-    <a href="/" aria-label="Volver al sitio principal de LevelGas"><img src="./assets/logo-header.png" alt="LevelGas" class="logo-img" onerror="this.style.display='none'"></a>
+    <a href="/" aria-label="Volver al sitio principal de LevelGas"><img src="./assets/logo-header.webp" alt="LevelGas" class="logo-img" onerror="this.style.display='none'"></a>
   </div>
   <div class="hd-right">
     <div id="bat-crit-badge" class="bat-crit-badge"><i class="fas fa-battery-quarter"></i> Batería crítica</div>
     <div id="bat-low-badge" class="bat-low-badge"><i class="fas fa-exclamation-triangle"></i> Batería baja</div>
     <span id="expiry-warn" class="expiry-pill"></span>
     <span id="plan-badge" style="display:none"></span>
-    <!-- PARCHE [seguridad 2026-08-24]: se elimina "Reset de clave". Dejaba la clave
-         en NULL, y con NULL se podía crear una nueva sin código: era la puerta
-         trasera de todo este modelo. Quien conoce la clave usa "Cambiar clave";
-         quien no la conoce, "¿Olvidaste tu clave?". Ambos pasan por el correo. -->
-    <button class="btn-qr-hdr" onclick="cambiarClave()" title="Cambiar la clave de acceso"><i class="fas fa-key"></i> Cambiar clave</button>
-    <button class="btn-qr-hdr" onclick="cambiarCorreo()" title="Registrar o cambiar el correo de recuperación"><i class="fas fa-envelope"></i> Correo de recuperación</button>
-    <!-- PARCHE [2026-08-25]: se retira "Borrado de fábrica" de la interfaz.
-         FACTORY_SECRET no está configurado, así que el botón solo podía dar
-         error, y los equipos devueltos se limpian desde el panel de Supabase.
-         La acción factory_reset sigue viva en la edge function por si algún
-         día se quiere volver a exponer. -->
+    <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
+    <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
+         el nuevo dueño esté obligado a poner el suyo. Para el final del proceso de fábrica. -->
+    <button class="btn-qr-hdr" onclick="prepararParaCliente()" title="Borra clave y correo para entregar la báscula a su dueño"><i class="fas fa-box-open"></i> Preparar para el cliente</button>
     <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i> QR</button>
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
@@ -481,7 +494,7 @@ header{
 <!-- ─── MODAL ACCESO / RECONEXIÓN ─── -->
 <div id="modal-acceso" class="modal-acceso" style="display:none">
   <div class="modal-acceso-box">
-    <img src="./assets/logo-access.png" alt="LevelGas" style="width:150px;max-width:70%;margin-bottom:12px">
+    <img src="./assets/logo-access.webp" alt="LevelGas" style="width:150px;max-width:70%;margin-bottom:12px">
     <p style="font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:1.1rem;margin-bottom:18px">
       ✦ nunca te quedarás sin gas ✦
     </p>
@@ -523,7 +536,7 @@ header{
 <!-- ─── MODAL RECUPERACIÓN DE CLAVE (PARCHE seguridad 2026-08-22) ─── -->
 <div id="modal-recuperar" class="modal-acceso" style="display:none">
   <div class="modal-acceso-box">
-    <h3 id="rec-titulo" style="margin:0 0 6px;color:var(--primary)"><i class="fas fa-envelope-open-text"></i> Recuperar acceso</h3>
+    <h3 style="margin:0 0 6px;color:var(--primary)"><i class="fas fa-envelope-open-text"></i> Recuperar acceso</h3>
     <p id="rec-msg" style="margin:0 0 18px;color:#555;font-size:0.92rem;line-height:1.55">
       Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula.
     </p>
@@ -537,19 +550,13 @@ header{
         <label for="rec-codigo">Código de 6 dígitos</label>
         <input id="rec-codigo" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
       </div>
-      <div id="rec-clave-grp">
-        <div class="inp-grp" style="text-align:left;margin-bottom:10px">
-          <label for="rec-nueva">Clave nueva</label>
-          <input id="rec-nueva" type="password" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
-        </div>
-        <div class="inp-grp" style="text-align:left;margin-bottom:10px">
-          <label for="rec-nueva2">Repetir clave nueva</label>
-          <input id="rec-nueva2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva">
-        </div>
+      <div class="inp-grp" style="text-align:left;margin-bottom:10px">
+        <label for="rec-nueva">Clave nueva</label>
+        <input id="rec-nueva" type="password" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
       </div>
-      <div id="rec-correo-grp" class="inp-grp" style="text-align:left;margin-bottom:10px;display:none">
-        <label for="rec-correo">Correo de recuperación nuevo</label>
-        <input id="rec-correo" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.cl">
+      <div class="inp-grp" style="text-align:left;margin-bottom:10px">
+        <label for="rec-nueva2">Repetir clave nueva</label>
+        <input id="rec-nueva2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva">
       </div>
       <button id="rec-confirmar" class="btn-modal primary" onclick="confirmarCodigoRecuperacion()">
         <i class="fas fa-check"></i> Cambiar la clave
@@ -576,7 +583,7 @@ header{
         <!-- 5K -->
         <div class="cyl-card" onclick="selectCylinder(5,'5K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-5k.png" alt="Cilindro 5 kg" loading="lazy">
+            <img src="./assets/cylinder-5k.webp" alt="Cilindro 5 kg" loading="lazy">
           </div>
           <div class="cyl-label">5K</div>
           <div class="cyl-sub">Doméstico<br>pequeño</div>
@@ -584,7 +591,7 @@ header{
         <!-- 11K -->
         <div class="cyl-card" onclick="selectCylinder(11,'11K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-11k.png" alt="Cilindro 11 kg" loading="lazy">
+            <img src="./assets/cylinder-11k.webp" alt="Cilindro 11 kg" loading="lazy">
           </div>
           <div class="cyl-label">11K</div>
           <div class="cyl-sub">Doméstico<br>mediano</div>
@@ -592,7 +599,7 @@ header{
         <!-- 15K -->
         <div class="cyl-card" onclick="selectCylinder(15,'15K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-15k.png" alt="Cilindro 15 kg" loading="lazy">
+            <img src="./assets/cylinder-15k.webp" alt="Cilindro 15 kg" loading="lazy">
           </div>
           <div class="cyl-label">15K</div>
           <div class="cyl-sub">Doméstico<br>estándar</div>
@@ -600,7 +607,7 @@ header{
         <!-- 45K -->
         <div class="cyl-card" onclick="selectCylinder(45,'45K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-45k.png" alt="Cilindro 45 kg" loading="lazy">
+            <img src="./assets/cylinder-45k.webp" alt="Cilindro 45 kg" loading="lazy">
           </div>
           <div class="cyl-label">45K</div>
           <div class="cyl-sub">Doméstico<br>grande</div>
@@ -828,7 +835,7 @@ header{
         <div class="mc-icon consumo"><i class="fas fa-tachometer-alt"></i></div>
         <div class="mc-label">Consumo de ayer</div>
         <div class="mc-val consumo" id="mc-consumo">—</div>
-        <div class="mc-sub">00:05 ayer → 00:05 hoy</div>
+        <div class="mc-sub">Día calendario (CLT)</div>
       </div>
       <div class="mc">
         <div class="mc-icon dias"><i class="fas fa-calendar-alt"></i></div>
@@ -852,6 +859,12 @@ header{
       <div id="alert-box" class="alert-banner">
         <i class="fas fa-exclamation-triangle"></i>
         <span id="alert-msg">Cilindro próximo a agotarse.</span>
+      </div>
+      <!-- PARCHE [2026-08-27]: recambio detectado pero no registrado -->
+      <div id="recambio-box" class="recambio-banner">
+        <i class="fas fa-exchange-alt"></i>
+        <span id="recambio-msg"></span>
+        <button type="button" onclick="ocultarAvisoRecambio()">Ya lo registré</button>
       </div>
       <div class="chart-scroll">
         <div class="chart-inner" id="chart-canvas-inner">
@@ -969,6 +982,11 @@ header{
           <div id="cyl-count" class="cyl-num" title="Número de cilindro actual para informes CSV/Excel">—</div>
         </div>
       </div>
+      <!-- PARCHE [2026-08-27]: el contador crece indefinidamente; el cliente
+           puede volver a empezar de cero, con doble confirmación. -->
+      <button class="btn-reset-hist" onclick="abrirResetHistorial()">
+        <i class="fas fa-rotate-left"></i> Reiniciar contador e historial
+      </button>
     </div>
   </div><!-- /r-col -->
 </div><!-- /dash -->
@@ -1175,13 +1193,6 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                 window._accessRpcDisponible  = true;
                 const r = (typeof data === 'string') ? data : (data === true ? 'ok' : 'clave_actual_incorrecta');
                 if (r !== 'ok'){
-                    if (r === 'requiere_codigo'){
-                        /* PARCHE [seguridad 2026-08-24]: esta báscula ya tiene clave.
-                           Cambiarla exige código al correo registrado. */
-                        alert('Esta báscula ya tiene una clave. Para cambiarla te enviaremos un código al correo de recuperación.');
-                        abrirRecuperacion('clave');
-                        return false;
-                    }
                     const motivos = {
                         clave_actual_incorrecta: 'No se pudo cambiar la clave: la clave actual no coincide. Usa "¿Olvidaste tu clave?" para recuperarla por correo.',
                         correo_requerido:        'Necesitas indicar un correo de recuperación para crear la clave.',
@@ -1260,12 +1271,51 @@ function _bloquearPorClaveInvalida(motivo){
     }
     abrirModalIngreso(false);
 }
-/* PARCHE [seguridad 2026-08-24]: resetClaveAcceso() eliminada.
-   Dejaba access_key en NULL, y con NULL set_access_key aceptaba un alta sin
-   código: era la puerta trasera que permitía a cualquiera con la clave
-   cambiarla sin pasar por el correo. El RPC reset_access_key ya no es
-   ejecutable por anon; queda solo para soporte con service_role.
-   Sustitutos en la interfaz: "Cambiar clave" y "¿Olvidaste tu clave?". */
+/* Reset de clave del MISMO dueño: borra la clave pero CONSERVA el correo de
+   recuperación, porque el titular no cambia. Para entregar la báscula a otra
+   persona hay que usar prepararParaCliente(), que borra ambos. */
+async function resetClaveAcceso(){
+    if (!confirm('¿Resetear la clave de este dashboard?\n\nSe borrará la clave guardada y se pedirá crear una nueva en todos los terminales.\n\nEl correo de recuperación se mantiene. Si vas a entregar la báscula a otra persona, usa "Preparar para el cliente".')) return;
+    const claveActual = _claveLocal();
+    // Borrar en Supabase ANTES de tocar el estado local: si el servidor rechaza el
+    // reset, el terminal conserva su clave y no queda en un limbo sin acceso.
+    if (device){
+        try {
+            if (window._accessRpcDisponible !== false){
+                const { data, error } = await db.rpc('reset_access_key', {
+                    p_device_mac:  device,
+                    p_current_key: claveActual || null
+                });
+                if (!error){
+                    window._accessRpcDisponible = true;
+                    if (data === false){
+                        alert('No se pudo resetear la clave: este terminal no tiene la clave actual.\n\nHazlo desde un terminal con la clave vigente, o pide el reset al soporte.');
+                        return;
+                    }
+                } else {
+                    // PARCHE [seguridad 2026-08-23]: sin UPDATE directo de respaldo.
+                    console.warn('[resetClave:rpc]', error.message || error);
+                    alert('No se pudo resetear la clave en la nube. Intenta de nuevo.');
+                    return;
+                }
+            } else {
+                alert('No se pudo resetear la clave: el servidor no tiene disponible reset_access_key.');
+                return;
+            }
+        } catch(e){
+            console.warn('[resetClave:remote]', e);
+            alert('No se pudo resetear la clave en la nube. Intenta de nuevo.');
+            return;
+        }
+    }
+    _borrarClaveLocal();
+    window._accessKeyRemote       = null;
+    window._accessKeyExistsRemote = false;
+    window._accessGranted         = false;
+    window._forceCreateAccessKey  = true;
+    _finalizarSesionConsulta();
+    abrirModalIngreso(false);
+}
 async function procesarIngresoClave(){
     if (!device){
         const deviceInput = document.getElementById('device-input');
@@ -1377,58 +1427,23 @@ async function procesarIngresoClave(){
 const RECOVERY_FN_URL = SUPABASE_URL + "/functions/v1/access-recovery";
 window._tieneCorreoRecuperacion = false;   // lo resuelve _iniciarConClave()
 
-/* PARCHE [seguridad 2026-08-24]: un solo modal para los tres cambios que
-   afectan el control del equipo. Los tres exigen código al correo registrado:
-     'clave'   — fijar una clave nueva (se sepa o no la actual)
-     'correo'  — mover el correo de recuperación
-     'entrega' — dejar la báscula sin clave ni correo, para el cliente
-   Antes bastaba conocer la clave, y con eso se podía secuestrar el equipo. */
-const REC_TEXTOS = {
-    clave:   { titulo: '<i class="fas fa-envelope-open-text"></i> Cambiar la clave',
-               boton:  '<i class="fas fa-check"></i> Cambiar la clave',
-               intro:  'Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula. Sin ese código la clave no cambia.' },
-    correo:  { titulo: '<i class="fas fa-envelope"></i> Cambiar el correo',
-               boton:  '<i class="fas fa-check"></i> Cambiar el correo',
-               intro:  'Te enviaremos un código al correo de recuperación ACTUAL. Hay que probar que lo controlas antes de moverlo.' },
-    entrega: { titulo: '<i class="fas fa-box-open"></i> Preparar para el cliente',
-               boton:  '<i class="fas fa-box-open"></i> Borrar clave y correo',
-               intro:  'Te enviaremos un código al correo de recuperación. Al confirmarlo, la báscula queda sin clave ni correo y el cliente registrará los suyos.' },
-};
-window._recModo = 'clave';
-
-function abrirRecuperacion(modo){
-    window._recModo = (modo === 'correo' || modo === 'entrega') ? modo : 'clave';
-    const t = REC_TEXTOS[window._recModo];
+function abrirRecuperacion(){
     document.getElementById('modal-acceso')?.classList.remove('open');
     const m = document.getElementById('modal-recuperar');
     if (!m) return;
     document.getElementById('rec-paso-1').style.display = '';
     document.getElementById('rec-paso-2').style.display = 'none';
-    const tit = document.getElementById('rec-titulo');
-    if (tit) tit.innerHTML = t.titulo;
-    const btn = document.getElementById('rec-confirmar');
-    if (btn) btn.innerHTML = t.boton;
-    const claveGrp  = document.getElementById('rec-clave-grp');
-    const correoGrp = document.getElementById('rec-correo-grp');
-    if (claveGrp)  claveGrp.style.display  = (window._recModo === 'clave')  ? '' : 'none';
-    if (correoGrp) correoGrp.style.display = (window._recModo === 'correo') ? '' : 'none';
-    ['rec-codigo','rec-nueva','rec-nueva2','rec-correo'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = '';
-    });
     const msg = document.getElementById('rec-msg');
     if (msg) msg.textContent = window._tieneCorreoRecuperacion
-        ? t.intro
-        : 'Esta báscula no tiene correo de recuperación configurado. Contacta con soporte.';
+        ? 'Te enviaremos un código de 6 dígitos al correo de recuperación de esta báscula.'
+        : 'Esta báscula no tiene correo de recuperación configurado. Si no recuerdas la clave, contacta con soporte.';
     m.style.display = '';
     m.classList.add('open');
 }
 function cerrarRecuperacion(){
     const m = document.getElementById('modal-recuperar');
     if (m){ m.classList.remove('open'); m.style.display = 'none'; }
-    /* PARCHE [seguridad 2026-08-24]: si la sesión ya está abierta —el usuario
-       entró y solo quería cambiar la clave o el correo— cancelar no debe
-       echarlo al modal de acceso. */
-    if (!window._accessGranted) abrirModalIngreso(false);
+    abrirModalIngreso(false);
 }
 async function solicitarCodigoRecuperacion(){
     const btn = document.getElementById('rec-enviar');
@@ -1439,7 +1454,7 @@ async function solicitarCodigoRecuperacion(){
         const r = await fetch(RECOVERY_FN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'request', device_mac: device, purpose: window._recModo || 'clave' })
+            body: JSON.stringify({ action: 'request', device_mac: device })
         });
         const d = await r.json();
         if (msg) msg.textContent = (d.mensaje || 'Solicitud enviada.')
@@ -1459,89 +1474,38 @@ async function solicitarCodigoRecuperacion(){
     }
 }
 async function confirmarCodigoRecuperacion(){
-    const modo   = window._recModo || 'clave';
     const codigo = (document.getElementById('rec-codigo')?.value || '').trim();
     const nueva  = (document.getElementById('rec-nueva')?.value  || '').trim();
     const nueva2 = (document.getElementById('rec-nueva2')?.value || '').trim();
-    const correo = (document.getElementById('rec-correo')?.value || '').trim();
     if (!/^\d{6}$/.test(codigo)){ alert('El código son 6 dígitos.'); return; }
-
-    let cuerpo;
-    if (modo === 'clave'){
-        if (nueva.length < 4){ alert('La clave nueva debe tener al menos 4 caracteres.'); return; }
-        if (nueva !== nueva2){ alert('Las claves no coinciden.'); return; }
-        cuerpo = { action: 'confirm', device_mac: device, code: codigo, new_key: nueva };
-    } else if (modo === 'correo'){
-        if (!correo.includes('@')){ alert('Indica un correo válido.'); return; }
-        cuerpo = { action: 'confirm_email', device_mac: device, code: codigo, new_email: correo };
-    } else {
-        cuerpo = { action: 'confirm_handover', device_mac: device, code: codigo };
-    }
-
+    if (nueva.length < 4){ alert('La clave nueva debe tener al menos 4 caracteres.'); return; }
+    if (nueva !== nueva2){ alert('Las claves no coinciden.'); return; }
     const btn = document.getElementById('rec-confirmar');
     const old = btn?.innerHTML;
     if (btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...'; }
-
-    /* PARCHE [seguridad 2026-08-24]: el try/catch cubre SOLO la llamada de red.
-       Antes envolvía también el arranque del dashboard, así que un fallo
-       posterior se reportaba como "no se pudo contactar con el servidor"
-       cuando el cambio de clave sí se había guardado — el peor mensaje
-       posible, porque invita a repetir la operación. */
-    let d;
     try {
         const r = await fetch(RECOVERY_FN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cuerpo)
+            body: JSON.stringify({ action: 'confirm', device_mac: device, code: codigo, new_key: nueva })
         });
-        d = await r.json();
-    } catch(e){
-        console.warn('[recuperacion:confirm]', e);
-        alert('No se pudo contactar con el servidor. Inténtalo de nuevo.');
-        return;
-    } finally {
-        if (btn){ btn.disabled = false; if (old) btn.innerHTML = old; }
-    }
-
-    if (!d || !d.ok){ alert((d && d.mensaje) || 'No se pudo validar el código.'); return; }
-
-    try {
-        const m = document.getElementById('modal-recuperar');
-        if (m){ m.classList.remove('open'); m.style.display = 'none'; }
-
-        if (modo === 'correo'){
-            window._tieneCorreoRecuperacion = true;
-            alert('Correo de recuperación actualizado.');
-            if (!window._accessGranted) abrirModalIngreso(false);
-            return;
-        }
-
-        if (modo === 'entrega'){
-            _borrarClaveLocal();
-            window._accessKeyRemote         = null;
-            window._accessKeyExistsRemote   = false;
-            window._tieneCorreoRecuperacion = false;
-            window._accessGranted           = false;
-            window._forceCreateAccessKey    = true;
-            _finalizarSesionConsulta();
-            alert('Listo. La báscula quedó sin clave ni correo: el cliente creará los suyos al abrir el dashboard.');
-            abrirModalIngreso(false);
-            return;
-        }
-
-        // modo 'clave'
+        const d = await r.json();
+        if (!d.ok){ alert(d.mensaje || 'No se pudo validar el código.'); return; }
         _guardarClaveLocal(nueva);
         window._accessKeyExistsRemote = true;
         window._forceCreateAccessKey  = false;
-        window._accessGranted         = true;
-        window._modalReconnectOnly    = false;
+        const m = document.getElementById('modal-recuperar');
+        if (m){ m.classList.remove('open'); m.style.display = 'none'; }
+        window._accessGranted = true;
+        window._modalReconnectOnly = false;
         _modalAcceso(false);
         await _iniciarDashboardTrasAcceso();
         _renovarSesionConsulta();
     } catch(e){
-        // La clave YA quedó cambiada; esto es un fallo al pintar el dashboard.
-        console.warn('[recuperacion:post]', e);
-        alert('La clave se actualizó correctamente, pero hubo un problema al cargar el dashboard. Recarga la página.');
+        console.warn('[recuperacion:confirm]', e);
+        alert('No se pudo contactar con el servidor. Inténtalo de nuevo.');
+    } finally {
+        if (btn){ btn.disabled = false; if (old) btn.innerHTML = old; }
     }
 }
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1552,38 +1516,47 @@ async function confirmarCodigoRecuperacion(){
    suyos en el primer arranque. Exige la clave vigente, así que solo puede
    hacerlo quien acaba de crearla.
 ═══════════════════════════════════════════════════════════════════════════ */
-/* PARCHE [2026-08-25]: el correo de recuperación es la raíz de confianza.
-
-   Sin correo registrado — estado de fábrica. No hay a quién mandarle un código,
-   así que la clave se fija directo con set_access_key (que exige la clave
-   actual si ya hay una). El operario entra con la clave fija, verifica que el
-   equipo transmite y empaqueta: no registra correo, así que no hay nada que
-   borrar después.
-
-   Con correo registrado — estado del cliente. Todo cambio exige código. El
-   equipo se blinda solo en cuanto el cliente registra el suyo. */
-function _sinCorreoRegistrado(){ return !window._tieneCorreoRecuperacion; }
-
-function _abrirAltaDirecta(){
-    window._forceCreateAccessKey = true;
-    abrirModalIngreso(false);
+async function prepararParaCliente(){
+    if (!device){ alert('Sin MAC en la URL.'); return; }
+    if (!confirm('¿Preparar esta báscula para entregarla al cliente?\n\n'
+               + '· Se borrará la clave de acceso\n'
+               + '· Se borrará el correo de recuperación\n\n'
+               + 'El cliente deberá crear su propia clave y registrar SU correo '
+               + 'la primera vez que abra el dashboard.\n\n'
+               + 'Úsalo solo al terminar el proceso de fábrica.')) return;
+    try {
+        const { data, error } = await db.rpc('handover_to_client', {
+            p_device_mac:  device,
+            p_current_key: _claveLocal() || null
+        });
+        if (error){
+            if (_rpcNoDisponible(error)){
+                alert('Esta función requiere la migración 202608110001. Aplícala en Supabase antes de usarla.');
+            } else {
+                console.warn('[handover]', error.message || error);
+                alert('No se pudo preparar la báscula. Inténtalo de nuevo.');
+            }
+            return;
+        }
+        if (data === false){
+            alert('No se pudo preparar la báscula: este terminal no tiene la clave vigente.\n\n'
+                + 'Hazlo desde el terminal donde creaste la clave.');
+            return;
+        }
+        _borrarClaveLocal();
+        window._accessKeyRemote          = null;
+        window._accessKeyExistsRemote    = false;
+        window._tieneCorreoRecuperacion  = false;
+        window._accessGranted            = false;
+        window._forceCreateAccessKey     = true;
+        _finalizarSesionConsulta();
+        alert('Listo. La báscula quedó sin clave ni correo: el cliente creará los suyos al abrir el dashboard.');
+        abrirModalIngreso(false);
+    } catch(e){
+        console.warn('[handover] error:', e);
+        alert('No se pudo preparar la báscula.');
+    }
 }
-
-function cambiarClave(){
-    if (_sinCorreoRegistrado()) return _abrirAltaDirecta();
-    abrirRecuperacion('clave');
-}
-
-function cambiarCorreo(){
-    // Sin correo aún, se registra junto con la clave y sin código: no existe
-    // todavía una dirección contra la que verificar.
-    if (_sinCorreoRegistrado()) return _abrirAltaDirecta();
-    abrirRecuperacion('correo');
-}
-
-/* PARCHE [2026-08-25]: prepararParaCliente() retirada junto con el botón de
-   borrado. Con el modelo de fábrica —clave fija y sin correo— no hay nada que
-   borrar antes de entregar: la báscula ya sale limpia. */
 const CHILE_OFFSET_H = -4;
 function toChileDate(iso) {
     let s = iso.replace(' ', 'T');
@@ -1977,6 +1950,10 @@ async function registerCylinderChange(){
             old_weight: cw, new_weight: fw ?? 0, created_at: new Date().toISOString()
         }]);
         if (e1) console.warn('[cylinder] Error registrando evento:', e1.message);
+        // El cliente acaba de registrar el cambio: forzar la revalidacion del aviso.
+        window._recambioChkTs = 0;
+        localStorage.removeItem("lg_recambio_visto");
+        document.getElementById("recambio-box")?.classList.remove("on");
         const { data: dd } = await db.from("devices")
             .select("current_cycle").eq("device_id", window.currentDeviceId).single();
         const newFullWeight = (gasNeto > 0 && taraInput > 0) ? +(gasNeto + taraInput).toFixed(2) : (fw ?? 0);
@@ -2050,6 +2027,148 @@ function updateGauge(pct){
    ALERTA GAS
 ═══════════════════════════════════════════ */
 const ALERT_KG = 2.0;
+/* ═══════════════════════════════════════════
+   RECAMBIO NO REGISTRADO   [PARCHE 2026-08-27]
+   ───────────────────────────────────────────
+   Si el peso sube de golpe y no hay un cylinder_change registrado cerca de esa
+   fecha, el cycle_id no avanza y el detalle por cilindro del Excel y del PDF
+   termina agrupando dos cilindros distintos bajo el mismo ciclo. El consumo no
+   se ve afectado —una subida de peso nunca cuenta como consumo—, pero el
+   informe por cilindro si. Aqui se detecta y se le pide al cliente que registre
+   el cambio, que es lo unico que el sistema no puede deducir solo.
+═══════════════════════════════════════════ */
+const RECAMBIO_KG_MIN     = 2.0;            // alza minima para suponer cilindro nuevo
+const RECAMBIO_VENTANA_MS = 2 * 3600000;    // margen para hallar el evento registrado
+async function checkRecambioNoRegistrado(){
+    const box = document.getElementById("recambio-box");
+    if (!box || !window.currentDeviceId) return;
+    // No consultar en cada refresco del dashboard: basta cada 10 minutos.
+    if (window._recambioChkTs && Date.now() - window._recambioChkTs < 600000) return;
+    window._recambioChkTs = Date.now();
+    try {
+        const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+        const { data: lect } = await db.from("sensor_data")
+            .select("created_at,weight,cycle_id")
+            .eq("device_id", window.currentDeviceId)
+            .gte("created_at", desde)
+            .order("created_at", { ascending: true }).limit(5000);
+        if (!lect || lect.length < 2){ box.classList.remove("on"); return; }
+        const saltos = [];
+        for (let i = 1; i < lect.length; i++){
+            const alza = parseFloat(lect[i].weight) - parseFloat(lect[i-1].weight);
+            if (alza >= RECAMBIO_KG_MIN) saltos.push({
+                t0: lect[i-1].created_at, t1: lect[i].created_at, alza,
+                ciclo0: lect[i-1].cycle_id, ciclo1: lect[i].cycle_id
+            });
+        }
+        if (!saltos.length){ box.classList.remove("on"); return; }
+        const { data: evs } = await db.from("cylinder_events")
+            .select("created_at").eq("device_id", window.currentDeviceId)
+            .eq("event_type", "cylinder_change").gte("created_at", desde);
+        const tiempos = (evs || []).map(e => new Date(e.created_at).getTime());
+        const sinRegistrar = saltos.filter(sa => {
+            if (sa.ciclo1 !== sa.ciclo0) return false;                 // el ciclo si avanzo
+            const a = new Date(sa.t0).getTime() - RECAMBIO_VENTANA_MS;
+            const b = new Date(sa.t1).getTime() + RECAMBIO_VENTANA_MS;
+            return !tiempos.some(t => t >= a && t <= b);
+        });
+        if (!sinRegistrar.length){ box.classList.remove("on"); return; }
+        const ult = sinRegistrar[sinRegistrar.length - 1];
+        if (localStorage.getItem("lg_recambio_visto") === ult.t1){ box.classList.remove("on"); return; }
+        window._recambioUltimo = ult.t1;
+        document.getElementById("recambio-msg").innerHTML =
+            `Detectamos un cilindro nuevo el <strong>${fmtShort(ult.t1)}</strong> (+${ult.alza.toFixed(1)} kg) `
+          + `que no quedó registrado`
+          + (sinRegistrar.length > 1 ? ` (${sinRegistrar.length} en los últimos 30 días)` : ``)
+          + `. Registra el cambio en <strong>Ajustes → Calibración → ¿Estás realizando un cambio de cilindro?</strong> `
+          + `cada vez que cambies el cilindro: sin eso, el detalle por cilindro del informe agrupa dos cilindros en uno.`;
+        box.classList.add("on");
+    } catch(e){ console.warn("[recambio]", e); }
+}
+/* ═══════════════════════════════════════════
+   REINICIO DEL CONTADOR E HISTORIAL   [PARCHE 2026-08-27]
+   ───────────────────────────────────────────
+   El contador de cilindros crece indefinidamente; aqui el cliente puede volver
+   a empezar de cero. Es irreversible, asi que va en dos pasos: primero la
+   advertencia con la invitacion a respaldar, y despues la clave de acceso.
+   El borrado ocurre server-side en el RPC reset_cylinder_history, que NO toca
+   la fila de devices: device_mac, device_id, activation_key, activated,
+   firmware, plan, los pesos y la clave vienen de la activacion de fabrica del
+   ESP32-C3 o de la configuracion fisica, y deben sobrevivir al reseteo.
+═══════════════════════════════════════════ */
+function abrirResetHistorial(){
+    if (!device){ alert("Dispositivo no encontrado."); return; }
+    resetHistorialPaso1();
+    document.getElementById("modal-reset-hist").classList.add("open");
+}
+function cerrarResetHistorial(){
+    document.getElementById("modal-reset-hist").classList.remove("open");
+    resetHistorialPaso1();
+}
+function resetHistorialPaso1(){
+    document.getElementById("rh-paso1").style.display = "";
+    document.getElementById("rh-paso2").style.display = "none";
+    const err = document.getElementById("rh-error");
+    if (err){ err.classList.remove("on"); err.textContent = ""; }
+    const inp = document.getElementById("rh-clave");
+    if (inp) inp.value = "";
+    const btn = document.getElementById("rh-btn-go");
+    if (btn){ btn.disabled = false; btn.textContent = "Borrar e iniciar en 1"; }
+}
+function resetHistorialPaso2(){
+    document.getElementById("rh-paso1").style.display = "none";
+    document.getElementById("rh-paso2").style.display = "";
+    setTimeout(() => document.getElementById("rh-clave")?.focus(), 60);
+}
+function _rhError(txt){
+    const err = document.getElementById("rh-error");
+    if (err){ err.textContent = txt; err.classList.add("on"); }
+}
+async function confirmarResetHistorial(){
+    const btn   = document.getElementById("rh-btn-go");
+    const clave = (document.getElementById("rh-clave")?.value || "").trim();
+    if (!clave){ _rhError("Ingresa tu clave de acceso."); return; }
+    btn.disabled = true; btn.textContent = "Borrando…";
+    try {
+        const { data, error } = await db.rpc("reset_cylinder_history", {
+            p_device_mac: device, p_access_key: clave
+        });
+        if (error) throw error;
+        const r = data || {};
+        if (!r.ok){
+            const msgs = {
+                no_coincide:          "La clave no es correcta.",
+                sin_clave_remota:     "Este equipo todavía no tiene clave de acceso. Créala primero en Ajustes y vuelve a intentarlo.",
+                sin_dispositivo:      "No encontramos este equipo.",
+                device_sin_device_id: "Este equipo aún no ha enviado su primera medición."
+            };
+            _rhError(msgs[r.msg] || ("No se pudo reiniciar (" + (r.msg || "error") + ")."));
+            btn.disabled = false; btn.textContent = "Borrar e iniciar en 1";
+            return;
+        }
+        /* Solo el estado local derivado del historial. La clave de acceso, la
+           tara y el peso lleno se conservan: son configuracion, no historial. */
+        try {
+            localStorage.removeItem("cal_data");
+            localStorage.removeItem("lg_recambio_visto");
+        } catch(e){ console.warn("[reset_historial:local]", e); }
+        window.historyData = []; window.rawSensorData = [];
+        window.currentCycle = 1;
+        const b = r.borrado || {};
+        alert("Historial reiniciado.\n\n"
+            + (b.sensor_data || 0) + " lecturas y " + (b.cylinder_events || 0)
+            + " cambios de cilindro eliminados.\nEl contador vuelve a 1.");
+        location.reload();
+    } catch(e){
+        console.error("[reset_historial]", e);
+        _rhError("Error de conexión. Inténtalo nuevamente.");
+        btn.disabled = false; btn.textContent = "Borrar e iniciar en 1";
+    }
+}
+function ocultarAvisoRecambio(){
+    if (window._recambioUltimo) localStorage.setItem("lg_recambio_visto", window._recambioUltimo);
+    document.getElementById("recambio-box")?.classList.remove("on");
+}
 function checkEarlyAlert(net){
     const ok = (window.currentPlan !== "free") && net > 0 && net <= ALERT_KG;
     document.getElementById("alert-box").classList.toggle("on", ok);
@@ -2129,44 +2248,72 @@ async function checkHeartbeat(){
    CONSUMO DIARIO
 ═══════════════════════════════════════════ */
 async function updateDailyConsumption(existingData){
+    /* PARCHE [2026-08-27] — CONSUMO DE AYER
+       ─────────────────────────────────────
+       Antes se promediaban las 3 primeras y las 3 últimas lecturas del rango
+       y se restaban. Como el peso solo baja, ese suavizado recorta la ventana
+       por ambos extremos y subestima el consumo de forma sistemática: para el
+       rango 24/08 21:13 → 25/08 18:02 devolvía 1.22 kg cuando las mismas
+       lecturas, en el Excel, dan 1.92 kg (-36%). Encima, el subtítulo
+       mostraba el rango completo, que no era el rango realmente calculado, y
+       si faltaban lecturas de ayer se cambiaba de período en silencio sin
+       dejar de rotularse "Consumo de ayer".
+       Ahora: se suman las CAÍDAS reales de peso entre lecturas consecutivas
+       del día calendario (más un ancla anterior a medianoche), las subidas
+       de peso —recarga o cambio de cilindro— no cuentan como consumo, y la
+       etiqueta siempre dice qué ventana se está midiendo. */
     if (!window.currentDeviceId) return;
     const el    = document.getElementById("mc-consumo");
     const subEl = el ? el.nextElementSibling : null;
+    const lblEl = el ? el.previousElementSibling : null;
     const { todayMid, yestMid } = getChileMidnights();
+    const anclaMs = yestMid.getTime() - 12 * 3600000;
     try {
         let pool = (existingData && existingData.length)
             ? [...existingData].sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-            : null;
-        if (!pool) {
+            : [];
+        // El pool que trae updateAll son 48 h filtradas por ciclo; si no alcanza
+        // a cubrir ayer completo se consulta la ventana exacta.
+        if (!pool.length || new Date(pool[0].created_at).getTime() > anclaMs){
             const { data: fb } = await db.from("sensor_data")
-                .select("weight,created_at").eq("device_id", window.currentDeviceId)
-                .gte("created_at", new Date(Date.now() - 48*3600000).toISOString())
+                .select("weight,created_at")
+                .eq("device_id", window.currentDeviceId)
+                .gte("created_at", new Date(anclaMs).toISOString())
                 .order("created_at", { ascending: true });
-            pool = fb || [];
+            if (fb?.length) pool = fb;
         }
-        let src = pool.filter(r => {
+        const dia = pool.filter(r => {
             const t = new Date(r.created_at).getTime();
             return t >= yestMid.getTime() && t < todayMid.getTime();
         });
-        if (src.length < 2) {
+        // Ancla: última lectura antes de medianoche. Sin ella se pierde el gas
+        // gastado entre la última lectura de antes de ayer y la primera de ayer.
+        const previas = pool.filter(r => new Date(r.created_at).getTime() < yestMid.getTime());
+        const previa  = previas.length ? previas[previas.length - 1] : null;
+        let src    = (previa && dia.length) ? [previa, ...dia] : dia;
+        const dY   = toChileDate(yestMid.toISOString());
+        let titulo = "Consumo de ayer";
+        let etiqueta = `${pad(dY.getUTCDate())}/${pad(dY.getUTCMonth()+1)} 00:00 → 24:00 (CLT)`;
+        if (src.length < 2){
             const cut = Date.now() - 86400000;
             src = pool.filter(r => new Date(r.created_at).getTime() >= cut);
+            titulo = "Consumo últimas 24 h";
+            etiqueta = src.length >= 2
+                ? fmtShort(src[0].created_at) + ' → ' + fmtShort(src[src.length-1].created_at)
+                : "Sin lecturas suficientes";
         }
-        if (src.length < 2 && pool.length >= 2) {
-            src = pool;
-        }
-        if (src.length >= 2) {
-            const n      = Math.min(3, Math.floor(src.length / 2));
-            const wStart = src.slice(0, n)
-                .reduce((s,r) => s + Math.max(0, parseFloat(r.weight)), 0) / n;
-            const wEnd   = src.slice(-n)
-                .reduce((s,r) => s + Math.max(0, parseFloat(r.weight)), 0) / n;
-            const c = Math.max(0, wStart - wEnd);
-            if (el) el.innerText = c > 0.01 ? c.toFixed(2) + " kg" : "Sin consumo";
-            if (subEl) subEl.innerText =
-                fmtShort(src[0].created_at) + ' → ' + fmtShort(src[src.length-1].created_at);
+        if (src.length >= 2){
+            let c = 0;
+            for (let i = 1; i < src.length; i++){
+                const d = parseFloat(src[i-1].weight) - parseFloat(src[i].weight);
+                if (d > 0) c += d;          // las subidas son recarga, no consumo
+            }
+            if (el)    el.innerText    = c > 0.01 ? c.toFixed(2) + " kg" : "Sin consumo";
+            if (lblEl) lblEl.innerText = titulo;
+            if (subEl) subEl.innerText = etiqueta;
         } else {
-            if (el) el.innerText = "—";
+            if (el)    el.innerText    = "—";
+            if (lblEl) lblEl.innerText = titulo;
             if (subEl) subEl.innerText = "Sin lecturas suficientes";
         }
     } catch(e){ console.error("Consumo diario:", e); if (el) el.innerText = "Error"; }
@@ -2296,30 +2443,46 @@ function renderRecordsTable(data, empty){
 /* ═══════════════════════════════════════════
    CHART 24h
 ═══════════════════════════════════════════ */
-const ctx24 = document.getElementById('chart').getContext('2d');
-window.chartInstance = new Chart(ctx24, {
-    type:'line',
-    data:{ labels:[], datasets:[{
-        label:'Gas (kg)', data:[],
-        borderColor:"#10b981", borderWidth:2, tension:.18,
-        pointRadius:3, pointBackgroundColor:"#10b981",
-        fill:true, backgroundColor:'rgba(16,185,129,.10)'
-    }]},
-    options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false},
-            tooltip:{ callbacks:{ label: c=>`Peso: ${c.parsed.y.toFixed(2)} kg` }}},
-        scales:{
-            y:{ beginAtZero:false, ticks:{ color:'#94a3b8', callback: v=>v.toFixed(1)+' kg' }, grid:{ color:'rgba(148,163,184,.1)' }},
-            x:{ ticks:{ color:'#94a3b8', maxTicksLimit:8 }, grid:{ display:false }}
+/* PARCHE [2026-08-27]: el grafico principal tiene dos modos —nivel de gas de
+   las ultimas 24 h (linea) e historial de CONSUMO por dia/semana (barras)—.
+   Se reconstruye al cambiar de modo en vez de mutar el tipo del dataset, que
+   es fragil, y cada modo trae su propia escala Y y su propio tooltip. */
+function _crearChartPrincipal(isHistory){
+    const ctx = document.getElementById('chart').getContext('2d');
+    if (window.chartInstance) window.chartInstance.destroy();
+    window.chartInstance = new Chart(ctx, {
+        type: isHistory ? 'bar' : 'line',
+        data:{ labels:[], datasets:[ isHistory
+            ? { label:'Consumo (kg)', data:[],
+                backgroundColor:'rgba(99,102,241,.60)', hoverBackgroundColor:'rgba(99,102,241,.85)',
+                borderColor:'#6366f1', borderWidth:0, borderRadius:3, maxBarThickness:26 }
+            : { label:'Gas (kg)', data:[],
+                borderColor:"#10b981", borderWidth:2, tension:.18,
+                pointRadius:3, pointBackgroundColor:"#10b981",
+                fill:true, backgroundColor:'rgba(16,185,129,.10)' }
+        ]},
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false},
+                tooltip:{ callbacks:{ label: c =>
+                    (isHistory ? 'Consumo: ' : 'Peso: ') + (c.parsed.y ?? 0).toFixed(2) + ' kg' }}},
+            scales:{
+                y:{ beginAtZero:!!isHistory,
+                    ticks:{ color:'#94a3b8', callback: v=>v.toFixed(isHistory?2:1)+' kg' },
+                    grid:{ color:'rgba(148,163,184,.1)' }},
+                x:{ ticks:{ color:'#94a3b8', maxTicksLimit: isHistory?15:8 }, grid:{ display:false }}
+            }
         }
-    }
-});
+    });
+    window._chartEsHistorial = !!isHistory;
+}
+_crearChartPrincipal(false);
 /* ═══════════════════════════════════════════
    ESCALA FIJA EJE Y
 ═══════════════════════════════════════════ */
 function updateChartYMax(){
     if (!window.chartInstance) return;
+    if (window._chartEsHistorial) return;   // la escala fija del cilindro no aplica al consumo
     let yMax = 0;
     const calRaw = localStorage.getItem('cal_data');
     if (calRaw){
@@ -2352,12 +2515,10 @@ function onPeriodChange(val){
     loadHistory(plan, val);
 }
 function updateChartColors(isHistory){
-    const ds = window.chartInstance.data.datasets[0];
-    if (isHistory){
-        ds.borderColor="#6366f1"; ds.backgroundColor="rgba(99,102,241,.09)"; ds.pointBackgroundColor="#6366f1";
-    } else {
-        ds.borderColor="#10b981"; ds.backgroundColor="rgba(16,185,129,.09)"; ds.pointBackgroundColor="#10b981";
-    }
+    /* Conmuta el grafico principal entre nivel (linea, 24 h) y consumo
+       (barras, historial). Reconstruye solo si cambio el modo. */
+    if (!window.chartInstance || window._chartEsHistorial !== !!isHistory)
+        _crearChartPrincipal(!!isHistory);
 }
 /* ═══════════════════════════════════════════
    PANEL DE CALIBRACIÓN
@@ -3000,6 +3161,7 @@ async function updateAll(){
         }
         renderRecordsTable(data, empty);
         await Promise.all([updateDaysRemaining(net), updateDailyConsumption(data)]);
+        checkRecambioNoRegistrado();   // aviso de cilindro nuevo sin registrar
     } catch(e){
         console.error("updateAll:", e);
         if (lrEl) lrEl.innerText = "Error: " + e.message;
@@ -3007,14 +3169,120 @@ async function updateAll(){
         window._updateAllRunning = false;
     }
 }
+/* ══════════════════════════════════════════
+   AGREGACIÓN DE CONSUMO   [PARCHE 2026-08-27]
+   ─────────────────────────────────────────
+   Antes, el historial mostraba el PROMEDIO del gas disponible por día o
+   semana (suma/n). Eso tenía tres defectos:
+     1. No es consumo: es el nivel medio del estanque.
+     2. No pondera el tiempo. sensor_data solo registra eventos que superan
+        el umbral del firmware, así que las muestras son irregulares y un
+        día con 20 lecturas en dos horas quedaba dominado por esas dos horas.
+     3. Mezclaba cilindros distintos en el mismo bucket, produciendo curvas
+        que nunca ocurrieron.
+   Ahora se calcula el consumo real: la suma de las CAÍDAS de peso entre
+   lecturas consecutivas, repartida en proporción al tiempo que abarca cada
+   intervalo. Las subidas de peso (recarga o cambio de cilindro) no cuentan
+   como consumo, así que el cálculo es correcto incluso cuando el cycle_id
+   no cambió en un recambio.
+═══════════════════════════════════════════ */
+const MS_DIA = 86400000;
+/* Desplazamiento CLT->UTC vigente en ese instante (respeta horario de verano). */
+function _offsetChileMs(ms){
+    const real = new Date(ms);
+    return toChileDate(real.toISOString()).getTime() - real.getTime();
+}
+function _partesChile(ms){ return toChileDate(new Date(ms).toISOString()); }
+/* Instante (UTC) en que empieza el dia -o la semana, lunes- que contiene a ms. */
+function _inicioBucketMs(ms, isWeekly){
+    const off = _offsetChileMs(ms);
+    const d   = _partesChile(ms);
+    let fake;
+    if (isWeekly){
+        const dow = d.getUTCDay(), diff = dow === 0 ? -6 : 1 - dow;
+        const mon = new Date(d.getTime() + diff * MS_DIA);
+        fake = Date.UTC(mon.getUTCFullYear(), mon.getUTCMonth(), mon.getUTCDate());
+    } else {
+        fake = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    }
+    return fake - off;
+}
+/* Fin del bucket = inicio del siguiente. Se entra 6 h dentro del periodo
+   siguiente antes de re-anclar, para no tropezar con los cambios de hora. */
+function _finBucketMs(ms, isWeekly){
+    const dentro = _inicioBucketMs(ms, isWeekly) + (isWeekly ? 7 : 1) * MS_DIA + 6 * 3600000;
+    return _inicioBucketMs(dentro, isWeekly);
+}
+function _bucketKeyMs(ms, isWeekly){
+    const d = _partesChile(_inicioBucketMs(ms, isWeekly) + 6 * 3600000);
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+}
+/* Eje calendario de N periodos que termina hoy. Los periodos sin transmisiones
+   existen y valen 0, en vez de desaparecer y dejar que Chart.js los dibuje
+   equiespaciados -esa era la razon de que el PDF nunca mostrara los 30 dias
+   completos y de que las curvas no se correspondieran con las fechas. */
+function _ejeCalendario(hastaMs, n, isWeekly){
+    const keys = []; let cur = hastaMs, ini = hastaMs;
+    for (let i = 0; i < n; i++){
+        ini = _inicioBucketMs(cur, isWeekly);
+        keys.push(_bucketKeyMs(cur, isWeekly));
+        cur = ini - 6 * 3600000;
+    }
+    keys.reverse();
+    return { keys, iniMs: ini };
+}
+/* Consumo real por periodo: suma de las CAIDAS de peso entre lecturas
+   consecutivas, repartida en proporcion al tiempo que abarca cada intervalo
+   (un intervalo de 3 dias ya no carga todo el gas en el ultimo dia). Las
+   subidas de peso -recarga o cambio de cilindro- no cuentan como consumo, asi
+   que el calculo es correcto incluso cuando el cycle_id no cambio en un
+   recambio. Lo que cae fuera del eje se descarta. */
+function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
+    const buckets = {};
+    ejeKeys.forEach(k => buckets[k] = { key:k, consumo:0, nivel:null, cycle_id:null, n:0, recargas:0 });
+    const get = ms => buckets[_bucketKeyMs(ms, isWeekly)] || null;
+    rows.forEach(r => {
+        const ms = new Date(r.created_at).getTime();
+        if (!Number.isFinite(ms)) return;
+        const b = get(ms); if (!b) return;
+        b.n       += 1;
+        b.nivel    = Math.max(0, parseFloat(r.weight) - empty);   // ultimo nivel del periodo
+        b.cycle_id = r.cycle_id;
+    });
+    for (let i = 1; i < rows.length; i++){
+        const t0 = new Date(rows[i-1].created_at).getTime();
+        const t1 = new Date(rows[i].created_at).getTime();
+        const dw = parseFloat(rows[i-1].weight) - parseFloat(rows[i].weight);
+        if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) continue;
+        if (!(dw > 0)){
+            if (dw < -0.5){ const b = get(t1); if (b) b.recargas += 1; }
+            continue;
+        }
+        let cur = t0, guardia = 0;
+        while (cur < t1 && guardia++ < 500){
+            let fin = _finBucketMs(cur, isWeekly);
+            if (!(fin > cur)) fin = t1;
+            fin = Math.min(fin, t1);
+            const b = get(cur);
+            if (b) b.consumo += dw * ((fin - cur) / (t1 - t0));
+            cur = fin;
+        }
+    }
+    return ejeKeys.map(k => buckets[k]);
+}
 /* ═══════════════════════════════════════════
    HISTORIAL
 ═══════════════════════════════════════════ */
 async function loadHistory(plan, period){
     if (!window.currentDeviceId) return;
-    const daysMap = { "7d":7, "30d":30, "6m":183 };
-    const days = daysMap[period] || 30;
-    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const isWeekly = period === "6m";
+    const nBuckets = period === "7d" ? 7 : isWeekly ? 26 : 30;   // 6 meses = 26 semanas
+    const hastaMs  = Date.now();
+    const { keys: ejeKeys, iniMs } = _ejeCalendario(hastaMs, nBuckets, isWeekly);
+    // Se consulta 2 dias antes del eje para tener la lectura de anclaje: sin
+    // ella se perderia el gas gastado entre la ultima lectura previa y la
+    // primera del periodo.
+    const since = new Date(iniMs - 2 * MS_DIA).toISOString();
     try {
         const { data, error } = await db.from("sensor_data")
             .select("created_at,weight,cycle_id,battery_voltage,battery_percentage,full_weight,empty_weight")
@@ -3022,29 +3290,20 @@ async function loadHistory(plan, period){
             .gte("created_at", since)
             .order("created_at", { ascending: true }).limit(5000);
         if (error) throw error;
-        window.rawSensorData = data || [];
         const empty = parseFloat(localStorage.getItem("empty") || 0);
-        renderRecordsTable(data, empty);
-        if (!data?.length){ window.historyData=[]; return; }
-        const buckets = {}, isWeekly = period === "6m";
-        data.forEach(row => {
-            const d = toChileDate(row.created_at);
-            let key;
-            if (isWeekly){
-                const dow = d.getUTCDay(), diff = dow===0?-6:1-dow;
-                const mon = new Date(d.getTime() + diff * 86400000);
-                key = `${mon.getUTCFullYear()}-${pad(mon.getUTCMonth()+1)}-${pad(mon.getUTCDate())}`;
-            } else {
-                key = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-            }
-            const net = Math.max(0, parseFloat(row.weight) - empty);
-            if (!buckets[key]){ buckets[key]={ sum:0, n:0, cid:row.cycle_id }; }
-            buckets[key].sum += net; buckets[key].n += 1; buckets[key].cid = row.cycle_id;
-        });
-        const agg = Object.entries(buckets).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>({
-            key:k, avg_weight:v.sum/v.n, cycle_id:v.cid,
-            day:        !isWeekly ? reformatKey(k) : undefined,
-            week_start:  isWeekly ? reformatKey(k) : undefined
+        const enEje = (data || []).filter(r => new Date(r.created_at).getTime() >= iniMs);
+        window.rawSensorData = enEje;              // exportaciones = periodo del plan
+        renderRecordsTable(enEje, empty);
+        if (!data?.length){ window.historyData = []; return; }
+        const agg = _agregarConsumo(data, isWeekly, ejeKeys, empty).map(v => ({
+            key:      v.key,
+            consumo:  +v.consumo.toFixed(3),
+            nivel:    v.nivel,
+            n:        v.n,
+            recargas: v.recargas,
+            cycle_id: v.cycle_id,
+            day:        !isWeekly ? reformatKey(v.key) : undefined,
+            week_start:  isWeekly ? reformatKey(v.key) : undefined
         }));
         window.historyData = agg;
         initHistoryChart(agg, period);
@@ -3052,8 +3311,7 @@ async function loadHistory(plan, period){
         inner.style.width = Math.max(inner.parentElement.clientWidth || 300, agg.length * 28) + "px";
         updateChartColors(true);
         window.chartInstance.data.labels           = agg.map(r => r.day || r.week_start);
-        window.chartInstance.data.datasets[0].data = agg.map(r => parseFloat(r.avg_weight.toFixed(2)));
-        updateChartYMax();
+        window.chartInstance.data.datasets[0].data = agg.map(r => +r.consumo.toFixed(2));
         window.chartInstance.update();
     } catch(e){ console.error("loadHistory:", e); }
 }
@@ -3061,10 +3319,13 @@ async function loadHistory(plan, period){
    HISTORY CHART (canvas oculto, solo PDF)
 ═══════════════════════════════════════════ */
 function initHistoryChart(agg, period){
+    /* PARCHE [2026-08-27]: barras de CONSUMO por período, no la línea del
+       promedio de gas disponible. El eje X es calendario completo, así que
+       los períodos sin transmisiones aparecen en 0 y no se colapsan. */
     const isWeekly = period === "6m";
     const labels = agg.map(r => r.day || r.week_start);
-    const vals   = agg.map(r => parseFloat(r.avg_weight.toFixed(2)));
-    const col    = "#6366f1", fill = "rgba(99,102,241,.12)";
+    const vals   = agg.map(r => +(r.consumo || 0).toFixed(2));
+    const col    = "#6366f1";
     if (window.historyChartInstance){
         window.historyChartInstance.data.labels = labels;
         window.historyChartInstance.data.datasets[0].data = vals;
@@ -3072,24 +3333,25 @@ function initHistoryChart(agg, period){
     }
     const hCtx = document.getElementById('history-chart').getContext('2d');
     window.historyChartInstance = new Chart(hCtx, {
-        type:'line',
+        type:'bar',
         data:{ labels, datasets:[{
-            label:'Gas (kg)', data:vals, borderColor:col, borderWidth:2.5,
-            tension:.3, pointRadius:4, pointBackgroundColor:col, fill:true, backgroundColor:fill
+            label:'Consumo (kg)', data:vals,
+            backgroundColor:'rgba(99,102,241,.70)', borderColor:col,
+            borderWidth:0, borderRadius:3, maxBarThickness:26
         }]},
         options:{
-            responsive:false, maintainAspectRatio:false,
+            responsive:false, maintainAspectRatio:false, animation:false,
             plugins:{ legend:{display:false},
                 title:{ display:true,
-                    text: isWeekly ? "Promedio semanal de gas disponible (kg)" : "Promedio diario de gas disponible (kg)",
+                    text: isWeekly ? "Consumo semanal de gas (kg)" : "Consumo diario de gas (kg)",
                     color:'#64748b', font:{size:13,weight:'600'}, padding:{bottom:12}}},
             scales:{
-                y:{ beginAtZero:false,
-                    title:{display:true,text:'Gas disp. (kg)',color:'#94a3b8',font:{size:11}},
-                    ticks:{color:'#94a3b8', callback: v=>v.toFixed(1)+' kg'},
+                y:{ beginAtZero:true,
+                    title:{display:true,text:'Consumo (kg)',color:'#94a3b8',font:{size:11}},
+                    ticks:{color:'#94a3b8', callback: v=>v.toFixed(2)+' kg'},
                     grid:{color:'rgba(148,163,184,.15)'}},
-                x:{ title:{display:true, text: isWeekly?'Semana':'Fecha', color:'#94a3b8', font:{size:11}},
-                    ticks:{color:'#94a3b8', maxTicksLimit: isWeekly?24:12, maxRotation:45},
+                x:{ title:{display:true, text: isWeekly?'Semana (inicio)':'Fecha', color:'#94a3b8', font:{size:11}},
+                    ticks:{color:'#94a3b8', maxTicksLimit: isWeekly?26:15, maxRotation:45},
                     grid:{display:false}}
             }
         }
@@ -3301,31 +3563,35 @@ async function getPlan(){
    EXPORTAR CSV
 ═══════════════════════════════════════════ */
 async function exportCSV(){
+    /* PARCHE [2026-08-27]: se agrega la columna "Consumo (kg)" por lectura y el
+       consumo por cilindro pasa a ser la SUMA de las caidas de peso, no
+       inicial-final. Asi el Excel, el CSV y el grafico PDF dan el mismo numero,
+       y una recarga dentro del mismo ciclo deja de perderse. */
     if (!window.rawSensorData?.length){ alert("Sin datos. Espera la carga del historial."); return; }
     const plan  = window.currentPlan||"free";
     const empty = parseFloat(localStorage.getItem("empty")||0);
-    const DIAS  = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+    const DIAS  = ["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
     let csv  = `"LevelGas PRO - Historial de lecturas"\n`;
     csv     += `"Plan:","${plan.toUpperCase()}"\n"Periodo:","${plan==="hogar"?"30 dias":"6 meses"}"\n`;
-    csv     += `"Exportado:","${new Date().toLocaleString("es-CL")}"\n"Peso vacio:","${empty.toFixed(2)} kg"\n\n`;
-    csv     += `"Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Voltaje (V)"\n`;
-    let cc=null, cw0=null, cr=0;
+    csv     += `"Exportado:","${new Date().toLocaleString("es-CL")}"\n"Peso vacio:","${empty.toFixed(2)} kg"\n`;
+    csv     += `"Nota:","Consumo = caida de peso respecto de la lectura anterior. Las subidas (recarga o cambio de cilindro) no cuentan como consumo."\n\n`;
+    csv     += `"Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Consumo (kg)","Voltaje (V)"\n`;
+    let cc=null, cr=0, ccon=0, cprev=null;
     window.rawSensorData.forEach((row,i)=>{
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
         const h=`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
         const br=parseFloat(row.weight||0), ne=Math.max(0,br-empty), vo=parseFloat(row.battery_voltage||0);
         if (cy!==cc){
-            if (cc!==null){
-                const pn=Math.max(0,parseFloat(window.rawSensorData[i-1].weight||0)-empty);
-                csv+=`\n"-- Fin Cilindro ${cc} | Gas Consumido: ${Math.max(0,cw0-pn).toFixed(2)} kg | Lecturas: ${cr}"\n\n`;
-            }
-            csv+=`"-- CILINDRO No ${cy} --"\n`; cc=cy; cw0=ne; cr=0;
+            if (cc!==null)
+                csv+=`\n"-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}"\n\n`;
+            csv+=`"-- CILINDRO No ${cy} --"\n`; cc=cy; cr=0; ccon=0;
         }
-        csv+=`"${f}","${h}","${DIAS[d.getUTCDay()]}","${cy}","${br.toFixed(2)}","${ne.toFixed(2)}","${vo.toFixed(2)}"\n`;
-        cr++;
+        const dc = (cprev===null) ? 0 : Math.max(0, cprev-ne);
+        ccon += dc; cprev = ne; cr++;
+        csv+=`"${f}","${h}","${DIAS[d.getUTCDay()]}","${cy}","${br.toFixed(2)}","${ne.toFixed(2)}","${dc.toFixed(2)}","${vo.toFixed(2)}"\n`;
         if (i===window.rawSensorData.length-1)
-            csv+=`\n"-- Fin Cilindro ${cc} | Gas Consumido: ${Math.max(0,cw0-ne).toFixed(2)} kg | Lecturas: ${cr}"\n`;
+            csv+=`\n"-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}"\n`;
     });
     const blob=new Blob(["\uFEFF"+csv],{type:'text/csv;charset=utf-8;'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
@@ -3335,17 +3601,23 @@ async function exportCSV(){
    EXPORTAR EXCEL
 ═══════════════════════════════════════════ */
 function exportExcel(){
+    /* PARCHE [2026-08-27]: columna "Consumo (kg)" por lectura; el consumo por
+       cilindro es la SUMA de las caidas de peso (inmune a recargas dentro del
+       mismo ciclo); y se corrige la fila de totales de la hoja resumen, que
+       escribia el total una columna corrida. */
     if (!window.rawSensorData?.length){ alert("Sin datos."); return; }
     const plan=window.currentPlan||"free", empty=parseFloat(localStorage.getItem("empty")||0);
-    const DIAS=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+    const DIAS=["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
     const hoy=new Date().toISOString().slice(0,10), now=new Date().toLocaleString("es-CL");
+    const V=["","","","","","","",""];
     const r1=[
-        ["LevelGas PRO - Historial de lecturas","","","","","",""],
-        [`Plan: ${plan.toUpperCase()}`,`Periodo: ${plan==="hogar"?"30 dias":"6 meses"}`,`Exportado: ${now}`,`Peso vacio: ${empty.toFixed(2)} kg`,"","",""],
-        ["","","","","","",""],
-        ["Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Voltaje (V)"]
+        ["LevelGas PRO - Historial de lecturas","","","","","","",""],
+        [`Plan: ${plan.toUpperCase()}`,`Periodo: ${plan==="hogar"?"30 dias":"6 meses"}`,`Exportado: ${now}`,`Peso vacio: ${empty.toFixed(2)} kg`,"","","",""],
+        ["Consumo = caida de peso respecto de la lectura anterior. Las subidas (recarga o cambio de cilindro) no cuentan como consumo.","","","","","","",""],
+        V.slice(),
+        ["Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Consumo (kg)","Voltaje (V)"]
     ];
-    const res={}; let cc=null,cw0=null,cwe=null,cr=0,cd0="",cde="";
+    const res={}; let cc=null,cw0=null,cwe=null,cr=0,cd0="",cde="",ccon=0,cprev=null;
     window.rawSensorData.forEach((row,i)=>{
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
@@ -3353,30 +3625,35 @@ function exportExcel(){
         const br=parseFloat(row.weight||0), ne=Math.max(0,br-empty), vo=parseFloat(row.battery_voltage||0);
         if (cy!==cc){
             if(cc!==null){
-                const cn=Math.max(0,cw0-cwe);
-                r1.push([`-- Fin Cilindro ${cc} | Gas Consumido: ${cn.toFixed(2)} kg | Lecturas: ${cr}`,"","","","","",""]);
-                r1.push(["","","","","","",""]);
-                res[cc]={ciclo:cc,fi:cd0,ff:cde,pi:cw0,pf:cwe,consumido:cn,lecturas:cr};
+                r1.push([`-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}`,"","","","","","",""]);
+                r1.push(V.slice());
+                res[cc]={ciclo:cc,fi:cd0,ff:cde,pi:cw0,pf:cwe,consumido:ccon,lecturas:cr};
             }
-            r1.push([`-- CILINDRO No ${cy} --`,"","","","","",""]); cc=cy; cw0=ne; cwe=ne; cd0=f; cde=f; cr=0;
+            r1.push([`-- CILINDRO No ${cy} --`,"","","","","","",""]);
+            cc=cy; cw0=ne; cwe=ne; cd0=f; cde=f; cr=0; ccon=0;
         }
-        r1.push([f,h,DIAS[d.getUTCDay()],cy,+br.toFixed(2),+ne.toFixed(2),+vo.toFixed(2)]);
+        const dc=(cprev===null)?0:Math.max(0,cprev-ne);
+        ccon+=dc; cprev=ne;
+        r1.push([f,h,DIAS[d.getUTCDay()],cy,+br.toFixed(2),+ne.toFixed(2),+dc.toFixed(2),+vo.toFixed(2)]);
         cr++; cwe=ne; cde=f;
         if(i===window.rawSensorData.length-1){
-            const cn=Math.max(0,cw0-cwe);
-            r1.push([`-- Fin Cilindro ${cc} | Gas Consumido: ${cn.toFixed(2)} kg | Lecturas: ${cr}`,"","","","","",""]);
-            res[cc]={ciclo:cc,fi:cd0,ff:cde,pi:cw0,pf:cwe,consumido:cn,lecturas:cr};
+            r1.push([`-- Fin Cilindro ${cc} | Gas Consumido: ${ccon.toFixed(2)} kg | Lecturas: ${cr}`,"","","","","","",""]);
+            res[cc]={ciclo:cc,fi:cd0,ff:cde,pi:cw0,pf:cwe,consumido:ccon,lecturas:cr};
         }
     });
     const ws1=XLSX.utils.aoa_to_sheet(r1);
-    ws1['!cols']=[{wch:13},{wch:7},{wch:11},{wch:6},{wch:16},{wch:16},{wch:13}];
+    ws1['!cols']=[{wch:13},{wch:7},{wch:11},{wch:6},{wch:16},{wch:16},{wch:14},{wch:13}];
     const r2=[
         ["LevelGas PRO - Resumen por cilindro","","","","","",""],
-        [`Exportado: ${now}`,"","","","","",""],["","","","","","",""],
+        [`Exportado: ${now}`,"","","","","",""],
+        ["Gas Consumido = suma de las caidas de peso del ciclo. Puede superar (inicial - final) si hubo una recarga dentro del mismo ciclo.","","","","","",""],
+        ["","","","","","",""],
         ["Ciclo","Fecha inicio","Fecha fin","Gas inicial (kg)","Gas final (kg)","Gas Consumido (kg)","Lecturas"]
     ];
     Object.values(res).forEach(c=>r2.push([c.ciclo,c.fi,c.ff,+c.pi.toFixed(2),+c.pf.toFixed(2),+c.consumido.toFixed(2),c.lecturas]));
-    r2.push(["","","","","",,+Object.values(res).reduce((a,c)=>a+c.consumido,0).toFixed(2),Object.values(res).reduce((a,c)=>a+c.lecturas,0)]);
+    r2.push(["TOTAL","","","","",
+             +Object.values(res).reduce((a,c)=>a+c.consumido,0).toFixed(2),
+              Object.values(res).reduce((a,c)=>a+c.lecturas,0)]);
     const ws2=XLSX.utils.aoa_to_sheet(r2);
     ws2['!cols']=[{wch:7},{wch:13},{wch:13},{wch:16},{wch:15},{wch:20},{wch:10}];
     const wb=XLSX.utils.book_new();
@@ -3420,9 +3697,17 @@ async function exportPDF(){
             resolve(c.toDataURL('image/png'));
         }catch{resolve(null);}
     }))();
-    const vs=rd.map(r=>r.avg_weight), avg=vs.reduce((a,b)=>a+b,0)/vs.length;
-    const mx=Math.max(...vs), mn=Math.min(...vs), co=Math.max(0, vs[0]-vs[vs.length-1]);
-    const iMx=vs.indexOf(mx), iMn=vs.indexOf(mn);
+    /* PARCHE [2026-08-27]: las estadisticas se calculan sobre el CONSUMO por
+       periodo. El promedio y el minimo solo consideran periodos con lecturas,
+       para que los huecos sin transmision no falseen el reporte. */
+    const vs   = rd.map(r => +(r.consumo || 0));
+    const co   = vs.reduce((a,b)=>a+b,0);                 // total consumido
+    const conD = rd.map((r,i) => r.n > 0 ? i : -1).filter(i => i >= 0);
+    const base = conD.length ? conD : rd.map((r,i) => i);
+    const avg  = base.reduce((a,i) => a + vs[i], 0) / base.length;
+    let iMx = base[0], iMn = base[0];
+    base.forEach(i => { if (vs[i] > vs[iMx]) iMx = i; if (vs[i] < vs[iMn]) iMn = i; });
+    const mx = vs[iMx], mn = vs[iMn];
     const fMx=rd[iMx]?.day||rd[iMx]?.week_start||"";
     const fMn=rd[iMn]?.day||rd[iMn]?.week_start||"";
     const fI=rd[0].day||rd[0].week_start||"";
@@ -3432,20 +3717,20 @@ async function exportPDF(){
     doc.setTextColor(255,255,255); doc.setFontSize(17); doc.setFont("helvetica","bold");
     doc.text("LEVELGAS PRO",logoData?25:14,12);
     doc.setFontSize(9.5); doc.setFont("helvetica","normal");
-    doc.text(isEmpresa?"Reporte Empresarial - Promedio semanal":"Reporte Residencial - Promedio diario",logoData?25:14,19);
+    doc.text(isEmpresa?"Reporte Empresarial - Consumo semanal":"Reporte Residencial - Consumo diario",logoData?25:14,19);
     doc.setFontSize(9); doc.text("PLAN "+plan.toUpperCase(),243,10); doc.text(new Date().toLocaleString("es-CL"),243,17);
     doc.setTextColor(0,0,0);
     doc.setFontSize(8); doc.setTextColor(100,100,120);
     doc.text(isEmpresa
-        ?`Eje X: inicio semana | Eje Y: kg neto | Periodo: ${fI} al ${fF} | ${rd.length} semanas`
-        :`Eje X: fecha | Eje Y: kg neto | Periodo: ${fI} al ${fF} | ${rd.length} dias`, 14, 27);
+        ?`Eje X: inicio de semana | Eje Y: kg consumidos | Periodo: ${fI} al ${fF} | ${rd.length} semanas`
+        :`Eje X: fecha | Eje Y: kg consumidos | Periodo: ${fI} al ${fF} | ${rd.length} dias`, 14, 27);
     doc.setTextColor(0,0,0);
     doc.addImage(chartImg,"PNG",12,29,273,90);
     doc.setFillColor(237,240,255); doc.roundedRect(12,121,273,11,2,2,"F");
     doc.setFontSize(8.5); doc.setTextColor(60,60,80); doc.setFont("helvetica","bold");
-    doc.text("Promedio:",16,127); doc.text("Maximo:",80,127); doc.text("Minimo:",168,127); doc.text("Consumo:",234,127);
+    doc.text(isEmpresa?"Prom. semanal:":"Prom. diario:",16,127); doc.text("Maximo:",80,127); doc.text("Minimo:",168,127); doc.text("Total consumido:",228,127);
     doc.setFont("helvetica","normal");
-    doc.text(`${avg.toFixed(2)} kg`,38,127);
+    doc.text(`${avg.toFixed(2)} kg`,44,127);
     doc.text(`${mx.toFixed(2)} kg (${fMx})`,96,127);
     doc.text(`${mn.toFixed(2)} kg (${fMn})`,184,127);
     doc.text(`${co.toFixed(2)} kg`,283,127,{align:"right"});
@@ -3453,8 +3738,8 @@ async function exportPDF(){
     doc.setFillColor(99,102,241); doc.rect(12,135,273,6,"F");
     doc.setTextColor(255,255,255); doc.setFontSize(8.5); doc.setFont("helvetica","bold");
     doc.text(isEmpresa
-        ?`Detalle semanal - ${rd.length} semanas  |  (MAX) mayor nivel  |  (MIN) menor nivel`
-        :`Detalle diario - ${rd.length} dias  |  (MAX) mayor nivel  |  (MIN) menor nivel`, 15, 139.5);
+        ?`Detalle semanal - ${rd.length} semanas  |  (MAX) mayor consumo  |  (MIN) menor consumo  |  s/d = sin lecturas`
+        :`Detalle diario - ${rd.length} dias  |  (MAX) mayor consumo  |  (MIN) menor consumo  |  s/d = sin lecturas`, 15, 139.5);
     doc.setFont("helvetica","normal"); doc.setTextColor(0,0,0);
     const COLS=3,cW=90,cX=[13,104,195],tY=143,rH=5.5,pC=Math.ceil(rd.length/COLS);
     cX.forEach((cx,ci)=>{
@@ -3462,14 +3747,14 @@ async function exportPDF(){
         doc.setFillColor(215,220,250); doc.rect(cx,tY,cW,rH,"F");
         doc.setFontSize(7.5); doc.setTextColor(40,40,80); doc.setFont("helvetica","bold");
         doc.text(isEmpresa?"Semana (inicio)":"Fecha",cx+2,tY+3.8);
-        doc.text("Gas disp.",cx+44,tY+3.8); doc.text("Ciclo",cx+70,tY+3.8);
+        doc.text("Consumo",cx+44,tY+3.8); doc.text("Ciclo",cx+70,tY+3.8);
         doc.setFont("helvetica","normal"); doc.setTextColor(0,0,0);
     });
     doc.setFontSize(7.5); doc.setDrawColor(225,228,240);
     rd.forEach((item,idx)=>{
         const col=Math.floor(idx/pC), row=idx%pC; if(col>=COLS) return;
         const cx=cX[col], fy=tY+rH+row*rH;
-        const lbl=item.day||item.week_start||"", val=item.avg_weight, cy=item.cycle_id||1;
+        const lbl=item.day||item.week_start||"", val=+(item.consumo||0), cy=item.n>0?(item.cycle_id||1):"s/d";
         const iMax=idx===iMx, iMin=idx===iMn;
         if(row%2===0){ doc.setFillColor(248,249,253); doc.rect(cx,fy,cW,rH,"F"); }
         if(iMax) doc.setTextColor(5,150,105);
@@ -3484,7 +3769,7 @@ async function exportPDF(){
     });
     doc.setFillColor(241,245,249); doc.rect(0,203,297,7,"F");
     doc.setFontSize(7); doc.setTextColor(130,130,145);
-    doc.text("LevelGas PRO - Valores corresponden al peso neto de gas (peso bruto menos tara del cilindro vacio).",14,207.5);
+    doc.text("LevelGas PRO - Consumo = suma de las caidas de peso medidas en el periodo. Las recargas y cambios de cilindro no cuentan como consumo.",14,207.5);
     doc.text(`Reporte: ${hoy} | Plan ${plan.toUpperCase()}`,283,207.5,{align:"right"});
     doc.save(`LevelGas-${plan}-${hoy}.pdf`);
 }
@@ -3712,6 +3997,56 @@ if ('serviceWorker' in navigator){
   </div>
 </div>
 
+<!-- PARCHE [2026-08-27]: reinicio del contador de cilindros -->
+<div id="modal-reset-hist" class="modal-contact-ov">
+  <div class="modal-contact-box">
+
+    <div id="rh-paso1">
+      <h3><i class="fas fa-triangle-exclamation" style="color:var(--red)"></i> Reiniciar contador e historial</h3>
+      <div class="rh-warn">
+        <strong>Esta acción no se puede deshacer.</strong> Se borrará de forma
+        definitiva todo el historial de mediciones de este equipo.
+      </div>
+      <ul class="rh-list">
+        <li>El contador vuelve a <strong>Cilindro N.º 1</strong></li>
+        <li>Se borran <strong>todas las lecturas</strong> y los gráficos quedan vacíos</li>
+        <li>Se borra el <strong>registro de cambios de cilindro</strong></li>
+        <li>El Excel y el PDF partirán desde cero</li>
+      </ul>
+      <div class="rh-backup">
+        <div class="rh-bk-t"><i class="fas fa-download" style="color:var(--primary)"></i> Antes de continuar, respalda tu historial</div>
+        <div class="rh-bk-b">
+          <button type="button" onclick="exportExcel()"><i class="fas fa-file-excel"></i> Excel</button>
+          <button type="button" onclick="exportPDF()"><i class="fas fa-file-pdf"></i> PDF</button>
+        </div>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin:0 0 4px;line-height:1.5">
+        La configuración del equipo (calibración, pesos, plan y clave de acceso) no se toca.
+      </p>
+      <div class="modal-contact-actions">
+        <button type="button" onclick="cerrarResetHistorial()">Cancelar</button>
+        <button type="button" class="peligro" onclick="resetHistorialPaso2()">Continuar</button>
+      </div>
+    </div>
+
+    <div id="rh-paso2" style="display:none">
+      <h3><i class="fas fa-key" style="color:var(--red)"></i> Confirma con tu clave</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 14px;line-height:1.55">
+        Ingresa la clave de acceso de este equipo para borrar el historial de forma definitiva.
+      </p>
+      <div class="inp-grp">
+        <label for="rh-clave">Clave de acceso</label>
+        <input id="rh-clave" type="password" autocomplete="off" placeholder="••••••••" onkeydown="if(event.key==='Enter')confirmarResetHistorial()">
+      </div>
+      <div id="rh-error" class="rh-err"></div>
+      <div class="modal-contact-actions">
+        <button type="button" onclick="resetHistorialPaso1()">Volver</button>
+        <button type="button" id="rh-btn-go" class="peligro" onclick="confirmarResetHistorial()">Borrar e iniciar en 1</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 <div id="modal-reset-instruction" class="modal-reset-ov hidden">
   <div class="reset-card">
     <div class="reset-icon">🔄</div>
