@@ -334,6 +334,14 @@ header{
 /* PARCHE [2026-08-27]: aviso de cilindro nuevo sin registrar */
 .recambio-banner{display:none;align-items:flex-start;gap:8px;padding:9px 12px;background:var(--orange-dim);border:1px solid var(--orange);border-radius:var(--radius-sm);font-size:12px;color:#92400e;margin-bottom:11px;line-height:1.45}
 .recambio-banner.on{display:flex}
+/* PARCHE [2026-08-28]: verificación de carga recibida */
+.carga-row{display:none;align-items:flex-start;gap:8px;margin-top:12px;padding:9px 11px;border-radius:var(--radius-sm);font-size:11.5px;line-height:1.45;border:1px solid var(--border);background:var(--bg2);color:var(--muted)}
+.carga-row.on{display:flex}
+.carga-row.ok{border-color:var(--blue);background:rgba(59,130,246,.10);color:var(--text)}
+.carga-row.falta{border-color:var(--red);background:var(--red-dim);color:var(--red)}
+.carga-row.extra{border-color:var(--orange);background:var(--orange-dim);color:#92400e}
+.carga-row i{margin-top:2px;flex-shrink:0}
+.carga-row b{font-weight:800}
 .recambio-banner i{color:var(--orange);margin-top:2px;flex-shrink:0}
 .recambio-banner button{margin-left:auto;flex-shrink:0;background:var(--orange);color:#fff;border:0;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 .chart-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
@@ -476,7 +484,7 @@ header{
 <!-- ═══ HEADER ═══ -->
 <header>
   <div class="hd-left">
-    <a href="/" aria-label="Volver al sitio principal de LevelGas"><img src="./assets/logo-header.webp" alt="LevelGas" class="logo-img" onerror="this.style.display='none'"></a>
+    <a href="/" aria-label="Volver al sitio principal de LevelGas"><img src="./assets/logo-header.png" alt="LevelGas" class="logo-img" onerror="this.style.display='none'"></a>
   </div>
   <div class="hd-right">
     <div id="bat-crit-badge" class="bat-crit-badge"><i class="fas fa-battery-quarter"></i> Batería crítica</div>
@@ -494,7 +502,7 @@ header{
 <!-- ─── MODAL ACCESO / RECONEXIÓN ─── -->
 <div id="modal-acceso" class="modal-acceso" style="display:none">
   <div class="modal-acceso-box">
-    <img src="./assets/logo-access.webp" alt="LevelGas" style="width:150px;max-width:70%;margin-bottom:12px">
+    <img src="./assets/logo-access.png" alt="LevelGas" style="width:150px;max-width:70%;margin-bottom:12px">
     <p style="font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:1.1rem;margin-bottom:18px">
       ✦ nunca te quedarás sin gas ✦
     </p>
@@ -583,7 +591,7 @@ header{
         <!-- 5K -->
         <div class="cyl-card" onclick="selectCylinder(5,'5K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-5k.webp" alt="Cilindro 5 kg" loading="lazy">
+            <img src="./assets/cylinder-5k.png" alt="Cilindro 5 kg" loading="lazy">
           </div>
           <div class="cyl-label">5K</div>
           <div class="cyl-sub">Doméstico<br>pequeño</div>
@@ -591,7 +599,7 @@ header{
         <!-- 11K -->
         <div class="cyl-card" onclick="selectCylinder(11,'11K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-11k.webp" alt="Cilindro 11 kg" loading="lazy">
+            <img src="./assets/cylinder-11k.png" alt="Cilindro 11 kg" loading="lazy">
           </div>
           <div class="cyl-label">11K</div>
           <div class="cyl-sub">Doméstico<br>mediano</div>
@@ -599,7 +607,7 @@ header{
         <!-- 15K -->
         <div class="cyl-card" onclick="selectCylinder(15,'15K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-15k.webp" alt="Cilindro 15 kg" loading="lazy">
+            <img src="./assets/cylinder-15k.png" alt="Cilindro 15 kg" loading="lazy">
           </div>
           <div class="cyl-label">15K</div>
           <div class="cyl-sub">Doméstico<br>estándar</div>
@@ -607,7 +615,7 @@ header{
         <!-- 45K -->
         <div class="cyl-card" onclick="selectCylinder(45,'45K')">
           <div class="cyl-icon">
-            <img src="./assets/cylinder-45k.webp" alt="Cilindro 45 kg" loading="lazy">
+            <img src="./assets/cylinder-45k.png" alt="Cilindro 45 kg" loading="lazy">
           </div>
           <div class="cyl-label">45K</div>
           <div class="cyl-sub">Doméstico<br>grande</div>
@@ -984,6 +992,11 @@ header{
       </div>
       <!-- PARCHE [2026-08-27]: el contador crece indefinidamente; el cliente
            puede volver a empezar de cero, con doble confirmación. -->
+      <!-- PARCHE [2026-08-28]: ¿el cilindro vino con el gas que dice? -->
+      <div id="carga-box" class="carga-row">
+        <i class="fas fa-weight-hanging"></i>
+        <span id="carga-msg"></span>
+      </div>
       <button class="btn-reset-hist" onclick="abrirResetHistorial()">
         <i class="fas fa-rotate-left"></i> Reiniciar contador e historial
       </button>
@@ -1595,20 +1608,48 @@ function pad(n){ return String(n).padStart(2, '0'); }
    tamano de la tara en el grafico de consumo.
    La propia fila dice en que base viene, asi que no hay que adivinar. TODO
    calculo debe pasar por aqui ANTES de restar lecturas entre si. */
-function _netoDe(row, tara){
-    const w = parseFloat(row?.weight);
-    if (!Number.isFinite(w)) return null;
-    const e = parseFloat(row?.empty_weight);
-    if (Number.isFinite(e) && e > 0) return Math.max(0, w);          // ya viene neto
-    const t = Number.isFinite(parseFloat(tara)) ? parseFloat(tara) : 0;
-    return Math.max(0, w - t);                                        // viene bruto
+/* PARCHE [2026-08-28]: el neto se calcula SIEMPRE con la tara impresa que el
+   cliente registró, nunca con la que traiga la lectura.
+   Motivo: la tara no es una constante del modelo. Abastible publica 14,5–16 kg
+   para el 15K y 12–14 kg para el 11K, y el valor real viene grabado en cada
+   botella. El único que lo conoce es el cliente, que lo ingresa en cada
+   recambio. Un equipo con v81.00 restaba su nominal de fábrica: con 0,7 kg de
+   diferencia el nivel se iba 11% y la alarma de gas bajo llegaba tarde.
+   Desde v81.01 el equipo envía bruto (empty_weight = 0). Para lo que siga
+   enviando neto, aquí se le devuelve su tara para reconstruir el bruto y luego
+   se resta la vigente. El consumo no se ve afectado en ningún caso: al restar
+   lecturas consecutivas cualquier offset constante se cancela. */
+/* ── Filtro de plausibilidad (28/08/2026) ──────────────────────────────────
+   Cuando el HX711 no responde, readWeight() devuelve -999. En v81.04 ese valor
+   llega entero a sensor_data; en v80.99 llegaba recortado a 0,0 kg. Las dos
+   formas terminan en un neto de 0, y el algoritmo de consumo las leia como una
+   caida enorme seguida de una subida enorme: la caida se sumaba al consumo.
+   Un cilindro sobre la balanza nunca pesa exactamente 0,000000 kg: ese valor es
+   siempre una lectura fallida recortada, o el cilindro retirado — y en ninguno
+   de los dos casos corresponde contarlo como consumo.
+   Las lecturas no plausibles devuelven null (no 0: null se salta, 0 miente) y
+   se retiran de la serie ANTES de comparar, para que las lecturas buenas de un
+   lado y del otro de una fallida se sigan comparando entre si. */
+const LECTURA_MIN_KG = 0.001;
+const LECTURA_MAX_KG = 200;
+function _lecturaPlausible(w){
+    return Number.isFinite(w) && w >= LECTURA_MIN_KG && w <= LECTURA_MAX_KG;
+}
+function _serieValida(rows, tara){
+    return (rows || []).filter(r => _netoDe(r, tara) !== null);
 }
 function _brutoDe(row, tara){
     const w = parseFloat(row?.weight);
-    if (!Number.isFinite(w)) return null;
+    if (!_lecturaPlausible(w)) return null;             // -999, NaN, 0.0, absurdos
     const e = parseFloat(row?.empty_weight);
-    if (Number.isFinite(e) && e > 0) return w + e;                    // el equipo ya resto la tara
-    return w;
+    const bruto = (Number.isFinite(e) && e > 0) ? w + e : w;   // e>0 ⇒ la lectura venía neta
+    return _lecturaPlausible(bruto) ? bruto : null;
+}
+function _netoDe(row, tara){
+    const bruto = _brutoDe(row, tara);
+    if (bruto === null) return null;
+    const t = Number.isFinite(parseFloat(tara)) ? parseFloat(tara) : 0;
+    return Math.max(0, bruto - t);
 }
 function fmtDate(iso){
     const d = toChileDate(iso);
@@ -1958,7 +1999,10 @@ async function registerCylinderChange(){
         const { data: latest } = await db.from("sensor_data").select("weight")
             .eq("device_id", window.currentDeviceId)
             .order("created_at", { ascending: false }).limit(1);
-        if (latest?.length) fw = parseFloat(latest[0].weight);
+        if (latest?.length) {
+            const wRaw = parseFloat(latest[0].weight);
+            fw = _lecturaPlausible(wRaw) ? wRaw : null;   // no avisar sobre una lectura fallida
+        }
         const warnEl = document.getElementById('cfg-weight-warn');
         if (fw !== null && gasNeto > 0 && taraInput > 0){
             const expectedWeight = +(gasNeto + taraInput).toFixed(2);
@@ -2080,14 +2124,15 @@ async function checkRecambioNoRegistrado(){
             .eq("device_id", window.currentDeviceId)
             .gte("created_at", desde)
             .order("created_at", { ascending: true }).limit(5000);
-        if (!lect || lect.length < 2){ box.classList.remove("on"); return; }
-        const saltos = [];
         const tara = parseFloat(localStorage.getItem("empty") || 0);
-        for (let i = 1; i < lect.length; i++){
-            const alza = (_netoDe(lect[i], tara) ?? 0) - (_netoDe(lect[i-1], tara) ?? 0);
+        const lectV = _serieValida(lect, tara);          // fuera las lecturas fallidas
+        if (lectV.length < 2){ box.classList.remove("on"); return; }
+        const saltos = [];
+        for (let i = 1; i < lectV.length; i++){
+            const alza = _netoDe(lectV[i], tara) - _netoDe(lectV[i-1], tara);
             if (alza >= RECAMBIO_KG_MIN) saltos.push({
-                t0: lect[i-1].created_at, t1: lect[i].created_at, alza,
-                ciclo0: lect[i-1].cycle_id, ciclo1: lect[i].cycle_id
+                t0: lectV[i-1].created_at, t1: lectV[i].created_at, alza,
+                ciclo0: lectV[i-1].cycle_id, ciclo1: lectV[i].cycle_id
             });
         }
         if (!saltos.length){ box.classList.remove("on"); return; }
@@ -2193,6 +2238,68 @@ async function confirmarResetHistorial(){
         _rhError("Error de conexión. Inténtalo nuevamente.");
         btn.disabled = false; btn.textContent = "Borrar e iniciar en 1";
     }
+}
+/* ═══════════════════════════════════════════
+   VERIFICACIÓN DE CARGA RECIBIDA   [PARCHE 2026-08-28]
+   ───────────────────────────────────────────
+   Tres celdas, como una planilla:
+     A = peso BRUTO que mide la balanza
+     B = carga nominal de la familia (5 / 11 / 15 / 45 kg)
+     C = tara IMPRESA en esa botella, que el cliente registra en el modal
+   Gas de verdad recibido = A(primera lectura del cilindro) − C, y se compara
+   con B. Si compró 15 kg y le entregaron 13,8, aquí se ve.
+   B no hace falta guardarlo aparte: el modal calcula lleno = nominal + tara,
+   así que B = full − empty. C es 'empty'. */
+const CARGA_TOLERANCIA_KG = 0.30;    // margen razonable de báscula y redondeo
+async function verificarCargaRecibida(){
+    const box = document.getElementById("carga-box");
+    const msg = document.getElementById("carga-msg");
+    if (!box || !msg || !window.currentDeviceId) return;
+    const ocultar = () => { box.className = "carga-row"; };
+    const tara    = parseFloat(localStorage.getItem("empty") || 0);
+    const lleno   = parseFloat(localStorage.getItem("full")  || 0);
+    const nominal = +(lleno - tara).toFixed(2);
+    if (!(tara > 0) || !(nominal > 0)) return ocultar();
+    try {
+        const { data: lc } = await db.from("cylinder_events")
+            .select("created_at").eq("device_id", window.currentDeviceId)
+            .eq("event_type", "cylinder_change")
+            .order("created_at", { ascending: false }).limit(1);
+        // Sin recambio registrado no se sabe qué lectura corresponde al cilindro
+        // instalado, y el dato sería inventado.
+        if (!lc?.length) return ocultar();
+        const tCambio = new Date(lc[0].created_at).getTime();
+        const { data } = await db.from("sensor_data")
+            .select("created_at,weight,empty_weight")
+            .eq("device_id", window.currentDeviceId)
+            .gte("created_at", new Date(tCambio + 15000).toISOString())
+            .order("created_at", { ascending: true }).limit(1);
+        if (!data?.length) return ocultar();
+        // Si la primera lectura llegó mucho después, ya hubo consumo y el dato
+        // dejaría de medir la carga entregada.
+        const horas = (new Date(data[0].created_at).getTime() - tCambio) / 3600000;
+        if (horas > 24) return ocultar();
+        const bruto    = _brutoDe(data[0], tara);
+        const recibida = bruto - tara;
+        const dif      = recibida - nominal;
+        const fecha    = fmtShort(data[0].created_at);
+        if (Math.abs(dif) <= CARGA_TOLERANCIA_KG){
+            box.className = "carga-row on ok";
+            msg.innerHTML = `Carga verificada el ${fecha}: <b>${recibida.toFixed(2)} kg</b> `
+                          + `de ${nominal.toFixed(0)} kg nominales. Dentro de lo esperado.`;
+        } else if (dif < 0){
+            box.className = "carga-row on falta";
+            msg.innerHTML = `⚠️ Este cilindro llegó con <b>${recibida.toFixed(2)} kg</b> de gas, `
+                          + `${Math.abs(dif).toFixed(2)} kg menos que los ${nominal.toFixed(0)} kg `
+                          + `que corresponden. Medido el ${fecha} sobre un bruto de ${bruto.toFixed(2)} kg `
+                          + `y una tara de ${tara.toFixed(2)} kg.`;
+        } else {
+            box.className = "carga-row on extra";
+            msg.innerHTML = `Este cilindro llegó con <b>${recibida.toFixed(2)} kg</b>, `
+                          + `${dif.toFixed(2)} kg sobre los ${nominal.toFixed(0)} kg nominales. `
+                          + `Revisa que la tara registrada (${tara.toFixed(2)} kg) sea la impresa en la botella.`;
+        }
+    } catch(e){ console.warn("[carga]", e); ocultar(); }
 }
 function ocultarAvisoRecambio(){
     if (window._recambioUltimo) localStorage.setItem("lg_recambio_visto", window._recambioUltimo);
@@ -2331,11 +2438,13 @@ async function updateDailyConsumption(existingData){
                 ? fmtShort(src[0].created_at) + ' → ' + fmtShort(src[src.length-1].created_at)
                 : "Sin lecturas suficientes";
         }
-        if (src.length >= 2){
+        const taraSrc = parseFloat(localStorage.getItem("empty") || 0);
+        const srcV = _serieValida(src, taraSrc);          // fuera las lecturas fallidas
+        if (srcV.length >= 2){
             let c = 0;
-            const tara = parseFloat(localStorage.getItem("empty") || 0);
-            for (let i = 1; i < src.length; i++){
-                const d = (_netoDe(src[i-1], tara) ?? 0) - (_netoDe(src[i], tara) ?? 0);
+            const tara = taraSrc;
+            for (let i = 1; i < srcV.length; i++){
+                const d = _netoDe(srcV[i-1], tara) - _netoDe(srcV[i], tara);
                 if (d > 0) c += d;          // las subidas son recarga, no consumo
             }
             if (el)    el.innerText    = c > 0.01 ? c.toFixed(2) + " kg" : "Sin consumo";
@@ -2420,12 +2529,14 @@ async function updateDaysRemaining(net){
         }
         let consumo = 0;
         const tara = parseFloat(localStorage.getItem("empty") || 0);
-        for (let i = 1; i < data.length; i++){
-            const d = (_netoDe(data[i-1], tara) ?? 0) - (_netoDe(data[i], tara) ?? 0);
+        const dataV = _serieValida(data, tara);           // fuera las lecturas fallidas
+        if (dataV.length < 2){ if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Sin lecturas validas"; } return; }
+        for (let i = 1; i < dataV.length; i++){
+            const d = _netoDe(dataV[i-1], tara) - _netoDe(dataV[i], tara);
             if (d > 0) consumo += d;
         }
-        const t0   = new Date(data[0].created_at).getTime();
-        const tN   = new Date(data[data.length - 1].created_at).getTime();
+        const t0   = new Date(dataV[0].created_at).getTime();
+        const tN   = new Date(dataV[dataV.length - 1].created_at).getTime();
         const span = (tN - t0) / 86400000;
         if (!(span > 0.25)){
             if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Historial demasiado corto"; }
@@ -3210,6 +3321,7 @@ async function updateAll(){
         renderRecordsTable(data, empty);
         await Promise.all([updateDaysRemaining(net), updateDailyConsumption(data)]);
         checkRecambioNoRegistrado();   // aviso de cilindro nuevo sin registrar
+        verificarCargaRecibida();      // ¿el cilindro vino con el gas que dice?
     } catch(e){
         console.error("updateAll:", e);
         if (lrEl) lrEl.innerText = "Error: " + e.message;
@@ -3286,6 +3398,7 @@ function _ejeCalendario(hastaMs, n, isWeekly){
    que el calculo es correcto incluso cuando el cycle_id no cambio en un
    recambio. Lo que cae fuera del eje se descarta. */
 function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
+    rows = _serieValida(rows, empty);   // fuera las lecturas fallidas antes de comparar
     const buckets = {};
     ejeKeys.forEach(k => buckets[k] = { key:k, consumo:0, nivel:null, cycle_id:null, n:0, recargas:0 });
     const get = ms => buckets[_bucketKeyMs(ms, isWeekly)] || null;
@@ -3302,7 +3415,7 @@ function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
         const t1 = new Date(rows[i].created_at).getTime();
         // Sobre el NETO: si la base cambia (el equipo pasa a enviar neto), el
         // salto artificial del tamano de la tara no se cuenta como consumo.
-        const dw = (_netoDe(rows[i-1], empty) ?? 0) - (_netoDe(rows[i], empty) ?? 0);
+        const dw = _netoDe(rows[i-1], empty) - _netoDe(rows[i], empty);
         if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) continue;
         if (!(dw > 0)){
             if (dw < -0.5){ const b = get(t1); if (b) b.recargas += 1; }
