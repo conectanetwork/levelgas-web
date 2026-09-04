@@ -1571,6 +1571,21 @@ async function prepararParaCliente(){
     }
 }
 const CHILE_OFFSET_H = -4;
+/* ── Zona horaria de created_at (04/09/2026) ───────────────────────────────
+   `sensor_data.created_at` es `timestamp without time zone` y guarda UTC, asi
+   que PostgREST lo devuelve SIN sufijo Z: "2026-08-30T11:28:14.021213".
+   new Date() con esa forma la interpreta como hora LOCAL del navegador. En
+   Chile eso corria cada instante 4 horas, y como los buckets del grafico se
+   arman por dia calendario, el gas de las lecturas nocturnas caia en el dia
+   siguiente. Por eso el PDF y el Excel no cuadraban: el Excel usa
+   toChileDate(), que si agrega la Z, y el grafico usaba new Date() a secas.
+   Toda conversion de created_at a milisegundos pasa por aqui. */
+function _fechaUTC(iso){
+    if (iso instanceof Date) return iso;
+    let s = String(iso == null ? '' : iso).replace(' ', 'T');
+    if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+    return new Date(s);
+}
 function toChileDate(iso) {
     let s = iso.replace(' ', 'T');
     if (!s.endsWith('Z') && !s.includes('+')) s += 'Z';
@@ -2169,7 +2184,7 @@ async function checkRecambioNoRegistrado(){
         const { data: evs } = await db.from("cylinder_events")
             .select("created_at").eq("device_id", window.currentDeviceId)
             .eq("event_type", "cylinder_change").gte("created_at", desde);
-        const tiempos = (evs || []).map(e => new Date(e.created_at).getTime());
+        const tiempos = (evs || []).map(e => _fechaUTC(e.created_at).getTime());
         const sinRegistrar = saltos.filter(sa => {
             if (sa.ciclo1 !== sa.ciclo0) return false;                 // el ciclo si avanzo
             const a = new Date(sa.t0).getTime() - RECAMBIO_VENTANA_MS;
@@ -2298,7 +2313,7 @@ async function verificarCargaRecibida(){
         // Sin recambio registrado no se sabe qué lectura corresponde al cilindro
         // instalado, y el dato sería inventado.
         if (!lc?.length) return ocultar();
-        const tCambio = new Date(lc[0].created_at).getTime();
+        const tCambio = _fechaUTC(lc[0].created_at).getTime();
         const { data } = await db.from("sensor_data")
             .select("created_at,weight,empty_weight")
             .eq("device_id", window.currentDeviceId)
@@ -2307,7 +2322,7 @@ async function verificarCargaRecibida(){
         if (!data?.length) return ocultar();
         // Si la primera lectura llegó mucho después, ya hubo consumo y el dato
         // dejaría de medir la carga entregada.
-        const horas = (new Date(data[0].created_at).getTime() - tCambio) / 3600000;
+        const horas = (_fechaUTC(data[0].created_at).getTime() - tCambio) / 3600000;
         if (horas > 24) return ocultar();
         const bruto    = _brutoDe(data[0], tara);
         const recibida = bruto - tara;
@@ -2386,7 +2401,7 @@ async function checkHeartbeat(){
             dp.style.background="var(--red)"; dpt.innerText="Sin señal";
             if(hdD) hdD.style.background="var(--red)"; if(hdS) hdS.innerText="Sin señal"; return;
         }
-        const min = (Date.now() - new Date(data[0].created_at).getTime()) / 60000;
+        const min = (Date.now() - _fechaUTC(data[0].created_at).getTime()) / 60000;
         // v80.77: firmware solo envía al superar umbral de consumo (sin heartbeat horario).
         // Umbrales ajustados: < 24h = activo, < 7 días = sin actividad reciente, ≥ 7d = sin señal.
         const hrsAgo = Math.round(min / 60);
@@ -2436,11 +2451,11 @@ async function updateDailyConsumption(existingData){
     const anclaMs = yestMid.getTime() - 12 * 3600000;
     try {
         let pool = (existingData && existingData.length)
-            ? [...existingData].sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+            ? [...existingData].sort((a,b) => _fechaUTC(a.created_at) - _fechaUTC(b.created_at))
             : [];
         // El pool que trae updateAll son 48 h filtradas por ciclo; si no alcanza
         // a cubrir ayer completo se consulta la ventana exacta.
-        if (!pool.length || new Date(pool[0].created_at).getTime() > anclaMs){
+        if (!pool.length || _fechaUTC(pool[0].created_at).getTime() > anclaMs){
             const { data: fb } = await db.from("sensor_data")
                 .select("weight,created_at,empty_weight")
                 .eq("device_id", window.currentDeviceId)
@@ -2449,12 +2464,12 @@ async function updateDailyConsumption(existingData){
             if (fb?.length) pool = fb;
         }
         const dia = pool.filter(r => {
-            const t = new Date(r.created_at).getTime();
+            const t = _fechaUTC(r.created_at).getTime();
             return t >= yestMid.getTime() && t < todayMid.getTime();
         });
         // Ancla: última lectura antes de medianoche. Sin ella se pierde el gas
         // gastado entre la última lectura de antes de ayer y la primera de ayer.
-        const previas = pool.filter(r => new Date(r.created_at).getTime() < yestMid.getTime());
+        const previas = pool.filter(r => _fechaUTC(r.created_at).getTime() < yestMid.getTime());
         const previa  = previas.length ? previas[previas.length - 1] : null;
         let src    = (previa && dia.length) ? [previa, ...dia] : dia;
         const dY   = toChileDate(yestMid.toISOString());
@@ -2462,7 +2477,7 @@ async function updateDailyConsumption(existingData){
         let etiqueta = `${pad(dY.getUTCDate())}/${pad(dY.getUTCMonth()+1)} 00:00 → 24:00 (CLT)`;
         if (src.length < 2){
             const cut = Date.now() - 86400000;
-            src = pool.filter(r => new Date(r.created_at).getTime() >= cut);
+            src = pool.filter(r => _fechaUTC(r.created_at).getTime() >= cut);
             titulo = "Consumo últimas 24 h";
             etiqueta = src.length >= 2
                 ? fmtShort(src[0].created_at) + ' → ' + fmtShort(src[src.length-1].created_at)
@@ -2543,10 +2558,10 @@ async function updateDaysRemaining(net){
             return data || [];
         };
         const suficiente = (f) => f.length >= 4 &&
-            (new Date(f[f.length-1].created_at) - new Date(f[0].created_at)) / 86400000 >= 1;
+            (_fechaUTC(f[f.length-1].created_at) - _fechaUTC(f[0].created_at)) / 86400000 >= 1;
         let data = [];
         if (lc?.length){
-            const desdeCiclo = new Date(new Date(lc[0].created_at).getTime() + 15000).toISOString();
+            const desdeCiclo = new Date(_fechaUTC(lc[0].created_at).getTime() + 15000).toISOString();
             if (desdeCiclo > amplia) data = await leer(desdeCiclo);
         }
         if (!suficiente(data)) data = await leer(amplia);
@@ -2565,8 +2580,8 @@ async function updateDaysRemaining(net){
             const d = _netoDe(dataV[i-1], tara) - _netoDe(dataV[i], tara);
             if (d > 0) consumo += d;
         }
-        const t0   = new Date(dataV[0].created_at).getTime();
-        const tN   = new Date(dataV[dataV.length - 1].created_at).getTime();
+        const t0   = _fechaUTC(dataV[0].created_at).getTime();
+        const tN   = _fechaUTC(dataV[dataV.length - 1].created_at).getTime();
         const span = (tN - t0) / 86400000;
         if (!(span > 0.25)){
             if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Historial demasiado corto"; }
@@ -2829,7 +2844,7 @@ async function _pollForFirstReading(){
             .eq('cycle_id', cycle)
             .order('created_at', { ascending: false }).limit(1);
         if (!data?.length) return;
-        const readingTime = new Date(data[0].created_at).getTime();
+        const readingTime = _fechaUTC(data[0].created_at).getTime();
         // Ignorar solo lecturas muy anteriores al momento de calibración
         if (readingTime < calDate - margenMs) return;
         _stopCalPolling();
@@ -3118,7 +3133,7 @@ async function pollLatest(){
         // Esto captura el boot-send del ESP32 sin esperar los 15 min del intervalo largo.
         // NOTA: solo si _lastChartTs ya existe (establecido por updateAll en la carga inicial).
         // Si es null, updateAll aún no terminó → no lanzar una segunda carga concurrente.
-        if (window._lastChartTs && new Date(latest.created_at) > new Date(window._lastChartTs)){
+        if (window._lastChartTs && _fechaUTC(latest.created_at) > _fechaUTC(window._lastChartTs)){
             // Respetar el período seleccionado: si el usuario eligió 7d/30d
             // no volver a 24h; recargar el historial del período activo.
             if (currentPeriod && currentPeriod !== "24h"){
@@ -3148,7 +3163,7 @@ function refreshChartVirtuals(){
     // sensor_data contiene únicamente envíos reales que el firmware generó al superar
     // su umbral configurado. Aquí solo se aplica la ventana móvil de 24 horas.
     const rows = (window._chartRealRows || []).filter(row => {
-        const ts = new Date(row.created_at).getTime();
+        const ts = _fechaUTC(row.created_at).getTime();
         return Number.isFinite(ts) && ts >= cutoff24h;
     });
     const empty = window._chartEmpty != null ? window._chartEmpty : 0;
@@ -3157,7 +3172,7 @@ function refreshChartVirtuals(){
     const chartRows = [...rows];
     const latestRow = window._chartLatestRow || chartRows[chartRows.length - 1] || null;
     const lastTs = chartRows.length
-        ? new Date(chartRows[chartRows.length - 1].created_at).getTime()
+        ? _fechaUTC(chartRows[chartRows.length - 1].created_at).getTime()
         : 0;
     if (latestRow && (!chartRows.length || Date.now() - lastTs > 2 * 60 * 1000)) {
         chartRows.push({
@@ -3346,7 +3361,7 @@ async function updateAll(){
         refreshChartVirtuals();
         if (!window.currentPlan || window.currentPlan === 'free') {
             const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
-            window.rawSensorData = _serieValida(data, empty).filter(r => new Date(r.created_at).getTime() >= cutoff24h);
+            window.rawSensorData = _serieValida(data, empty).filter(r => _fechaUTC(r.created_at).getTime() >= cutoff24h);
         }
         renderRecordsTable(data, empty);
         await Promise.all([updateDaysRemaining(net), updateDailyConsumption(data)]);
@@ -3433,7 +3448,7 @@ function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
     ejeKeys.forEach(k => buckets[k] = { key:k, consumo:0, nivel:null, cycle_id:null, n:0, recargas:0 });
     const get = ms => buckets[_bucketKeyMs(ms, isWeekly)] || null;
     rows.forEach(r => {
-        const ms = new Date(r.created_at).getTime();
+        const ms = _fechaUTC(r.created_at).getTime();
         if (!Number.isFinite(ms)) return;
         const b = get(ms); if (!b) return;
         b.n       += 1;
@@ -3441,8 +3456,8 @@ function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
         b.cycle_id = r.cycle_id;
     });
     for (let i = 1; i < rows.length; i++){
-        const t0 = new Date(rows[i-1].created_at).getTime();
-        const t1 = new Date(rows[i].created_at).getTime();
+        const t0 = _fechaUTC(rows[i-1].created_at).getTime();
+        const t1 = _fechaUTC(rows[i].created_at).getTime();
         // Sobre el NETO: si la base cambia (el equipo pasa a enviar neto), el
         // salto artificial del tamano de la tara no se cuenta como consumo.
         const dw = _netoDe(rows[i-1], empty) - _netoDe(rows[i], empty);
@@ -3487,7 +3502,7 @@ async function loadHistory(plan, period){
         // Se limpia la serie ANTES de recortarla al eje: un pico que cae justo en
         // el borde solo se puede reconocer mientras conserve sus dos vecinas.
         const dataV = _serieValida(data || [], empty);
-        const enEje = dataV.filter(r => new Date(r.created_at).getTime() >= iniMs);
+        const enEje = dataV.filter(r => _fechaUTC(r.created_at).getTime() >= iniMs);
         window.rawSensorData = enEje;              // exportaciones = periodo del plan
         renderRecordsTable(enEje, empty);
         if (!dataV.length){ window.historyData = []; return; }
@@ -3817,6 +3832,7 @@ function exportExcel(){
         ["LevelGas PRO - Historial de lecturas","","","","","","",""],
         [`Plan: ${plan.toUpperCase()}`,`Periodo: ${plan==="hogar"?"30 dias":"6 meses"}`,`Exportado: ${now}`,`Peso vacio: ${empty.toFixed(2)} kg`,"","","",""],
         ["Consumo = caida de peso respecto de la lectura anterior. Las subidas (recarga o cambio de cilindro) no cuentan como consumo.","","","","","","",""],
+        ["Para el consumo por dia usar la hoja 'Resumen diario': es la misma cifra del grafico y del PDF. Ahi el gas de un intervalo que cruza la medianoche se reparte entre ambos dias segun el tiempo, cosa que esta hoja no puede hacer porque cada fila pertenece a una sola fecha.","","","","","","",""],
         V.slice(),
         ["Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Consumo (kg)","Voltaje (V)"]
     ];
@@ -3859,8 +3875,39 @@ function exportExcel(){
               Object.values(res).reduce((a,c)=>a+c.lecturas,0)]);
     const ws2=XLSX.utils.aoa_to_sheet(r2);
     ws2['!cols']=[{wch:7},{wch:13},{wch:13},{wch:16},{wch:15},{wch:20},{wch:10}];
+    /* Hoja "Resumen diario" [04/09/2026]: sale de window.historyData, que es
+       EXACTAMENTE la fuente que alimentan el grafico y el PDF. No se recalcula
+       nada aqui: si se recalculara, cualquier cambio futuro en el metodo haria
+       que los documentos volvieran a discrepar. Una sola fuente, tres salidas. */
+    const rd = window.historyData || [];
+    const esSem = plan === "empresa";
+    let ws3 = null;
+    if (rd.length){
+        const r3=[
+            [`LevelGas PRO - Resumen ${esSem?"semanal":"diario"}`,"","",""],
+            [`Exportado: ${now}`,"","",""],
+            ["Estas cifras son las mismas del grafico y del reporte PDF.","","",""],
+            ["El gas de un intervalo que cruza la medianoche se reparte entre los dos dias en proporcion al tiempo transcurrido. Por eso un dia puede no coincidir con la suma de la columna Consumo de la hoja Lecturas, donde cada caida se asigna entera a la fecha de su lectura final. El total del periodo si coincide.","","",""],
+            ["s/d = sin lecturas en el periodo","","",""],
+            ["","","",""],
+            [esSem?"Semana (inicio)":"Fecha","Consumo (kg)","Ciclo","Lecturas"]
+        ];
+        rd.forEach(b=>r3.push([
+            b.day||b.week_start||b.key||"",
+            +(+b.consumo||0).toFixed(2),
+            b.n>0 ? (b.cycle_id||1) : "s/d",
+            b.n||0
+        ]));
+        r3.push(["TOTAL",
+                 +rd.reduce((a,b)=>a+(+b.consumo||0),0).toFixed(2),
+                 "",
+                 rd.reduce((a,b)=>a+(b.n||0),0)]);
+        ws3=XLSX.utils.aoa_to_sheet(r3);
+        ws3['!cols']=[{wch:16},{wch:14},{wch:8},{wch:10}];
+    }
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws1,"Lecturas");
+    if (ws3) XLSX.utils.book_append_sheet(wb,ws3,esSem?"Resumen semanal":"Resumen diario");
     XLSX.utils.book_append_sheet(wb,ws2,"Resumen cilindros");
     XLSX.writeFile(wb,`LevelGas-${plan}-${hoy}.xlsx`);
 }
