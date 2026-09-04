@@ -1635,8 +1635,38 @@ const LECTURA_MAX_KG = 200;
 function _lecturaPlausible(w){
     return Number.isFinite(w) && w >= LECTURA_MIN_KG && w <= LECTURA_MAX_KG;
 }
+/* ── Picos transitorios (04/09/2026) ───────────────────────────────────────
+   Una lectura puede salir alta por un instante: alguien se apoya en el cilindro
+   o lo roza al cocinar, o la celda de carga recibe un golpe de ruido. El peso
+   vuelve solo en la lectura siguiente.
+   El problema no es el pico en si, sino que la BAJADA de vuelta se contabiliza
+   como consumo, y ese gas nunca se quemo. El 30/08/2026 un pico de +1,62 kg
+   inflo el dia de 2,37 a 4,00 kg: 68% de mas.
+   Un pico transitorio es un maximo local aislado: la lectura sobresale por
+   encima de sus dos vecinas, y esas dos vecinas se parecen entre si. Un
+   recambio de cilindro tambien sube, pero deja un ESCALON — la anterior y la
+   siguiente quedan en niveles muy distintos — y por eso no se confunden:
+
+     pico     29.07 → 30.70 → 28.87   sobresale 1.62, escalon 0.21  ⇒ se descarta
+     pico     27.49 → 27.74 → 27.46   sobresale 0.26, escalon 0.02  ⇒ se descarta
+     recambio 17.08 → 30.55 → 30.15   sobresale 0.40, escalon 13.07 ⇒ se conserva
+
+   El criterio compara solo magnitudes relativas, asi que funciona igual con la
+   serie ascendente o descendente. */
+const PICO_MIN_KG = 0.15;
+function _esPicoTransitorio(bPrev, bCur, bNext){
+    if (bPrev === null || bCur === null || bNext === null) return false;
+    const sobresale = bCur - Math.max(bPrev, bNext);   // cuanto se despega del nivel
+    if (sobresale < PICO_MIN_KG) return false;
+    const escalon = Math.abs(bPrev - bNext);           // cambio real de nivel alrededor
+    return escalon < sobresale;                        // vecinas parecidas ⇒ es un pico
+}
 function _serieValida(rows, tara){
-    return (rows || []).filter(r => _netoDe(r, tara) !== null);
+    const base = (rows || []).filter(r => _netoDe(r, tara) !== null);
+    if (base.length < 3) return base;
+    const b = base.map(r => _brutoDe(r, tara));
+    return base.filter((r, i) => i === 0 || i === base.length - 1
+                              || !_esPicoTransitorio(b[i-1], b[i], b[i+1]));
 }
 function _brutoDe(row, tara){
     const w = parseFloat(row?.weight);
@@ -3316,7 +3346,7 @@ async function updateAll(){
         refreshChartVirtuals();
         if (!window.currentPlan || window.currentPlan === 'free') {
             const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
-            window.rawSensorData = data.filter(r => new Date(r.created_at).getTime() >= cutoff24h);
+            window.rawSensorData = _serieValida(data, empty).filter(r => new Date(r.created_at).getTime() >= cutoff24h);
         }
         renderRecordsTable(data, empty);
         await Promise.all([updateDaysRemaining(net), updateDailyConsumption(data)]);
@@ -3454,11 +3484,14 @@ async function loadHistory(plan, period){
             .order("created_at", { ascending: true }).limit(5000);
         if (error) throw error;
         const empty = parseFloat(localStorage.getItem("empty") || 0);
-        const enEje = (data || []).filter(r => new Date(r.created_at).getTime() >= iniMs);
+        // Se limpia la serie ANTES de recortarla al eje: un pico que cae justo en
+        // el borde solo se puede reconocer mientras conserve sus dos vecinas.
+        const dataV = _serieValida(data || [], empty);
+        const enEje = dataV.filter(r => new Date(r.created_at).getTime() >= iniMs);
         window.rawSensorData = enEje;              // exportaciones = periodo del plan
         renderRecordsTable(enEje, empty);
-        if (!data?.length){ window.historyData = []; return; }
-        const agg = _agregarConsumo(data, isWeekly, ejeKeys, empty).map(v => ({
+        if (!dataV.length){ window.historyData = []; return; }
+        const agg = _agregarConsumo(dataV, isWeekly, ejeKeys, empty).map(v => ({
             key:      v.key,
             consumo:  +v.consumo.toFixed(3),
             nivel:    v.nivel,
@@ -3468,7 +3501,14 @@ async function loadHistory(plan, period){
             day:        !isWeekly ? reformatKey(v.key) : undefined,
             week_start:  isWeekly ? reformatKey(v.key) : undefined
         }));
-        window.historyData = agg;
+        /* El eje se arma siempre con 30 dias (o 26 semanas) hacia atras, aunque el
+           equipo lleve menos tiempo instalado. Esos periodos previos salian como
+           barras en cero, y el grafico daba a entender "consumo cero" cuando lo
+           correcto es "sin lecturas". Se recorta el tramo vacio INICIAL.
+           Los huecos INTERMEDIOS se conservan: ahi el equipo ya existia y no
+           reporto, y eso si es informacion que el cliente debe ver. */
+        const iPrimero = agg.findIndex(v => v.n > 0);
+        window.historyData = iPrimero > 0 ? agg.slice(iPrimero) : agg;
         initHistoryChart(agg, period);
         const inner = document.getElementById("chart-canvas-inner");
         inner.style.width = Math.max(inner.parentElement.clientWidth || 300, agg.length * 28) + "px";
