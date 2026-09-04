@@ -3796,8 +3796,19 @@ async function exportCSV(){
        consumo por cilindro pasa a ser la SUMA de las caidas de peso, no
        inicial-final. Asi el Excel, el CSV y el grafico PDF dan el mismo numero,
        y una recarga dentro del mismo ciclo deja de perderse. */
-    if (!window.rawSensorData?.length){ alert("Sin datos. Espera la carga del historial."); return; }
     const plan  = window.currentPlan||"free";
+    /* [04/09/2026] Igual que exportPDF(): si el historial todavia no esta en
+       memoria, se carga aqui. Antes solo se alertaba "Sin datos", y de ahi venia
+       el sintoma de tener que generar el PDF PRIMERO para que el Excel y el CSV
+       funcionaran: el unico de los tres que se molestaba en cargar era el PDF. */
+    if (!window.rawSensorData?.length && (plan === "hogar" || plan === "empresa")){
+        await loadHistory(plan, plan === "empresa" ? "6m" : "30d");
+    }
+    if (!window.rawSensorData?.length){
+        alert("Todavia no hay lecturas para exportar. Si el equipo acaba de instalarse, espera a que envie su primera medicion.");
+        return;
+    }
+
     const empty = parseFloat(localStorage.getItem("empty")||0);
     const DIAS  = ["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
     let csv  = `"LevelGas PRO - Historial de lecturas"\n`;
@@ -3832,13 +3843,24 @@ async function exportCSV(){
 /* ═══════════════════════════════════════════
    EXPORTAR EXCEL
 ═══════════════════════════════════════════ */
-function exportExcel(){
+async function exportExcel(){
     /* PARCHE [2026-08-27]: columna "Consumo (kg)" por lectura; el consumo por
        cilindro es la SUMA de las caidas de peso (inmune a recargas dentro del
        mismo ciclo); y se corrige la fila de totales de la hoja resumen, que
        escribia el total una columna corrida. */
-    if (!window.rawSensorData?.length){ alert("Sin datos."); return; }
     const plan=window.currentPlan||"free", empty=parseFloat(localStorage.getItem("empty")||0);
+    /* [04/09/2026] Igual que exportPDF(): si el historial todavia no esta en
+       memoria, se carga aqui. Antes solo se alertaba "Sin datos", y de ahi venia
+       el sintoma de tener que generar el PDF PRIMERO para que el Excel y el CSV
+       funcionaran: el unico de los tres que se molestaba en cargar era el PDF. */
+    if (!window.rawSensorData?.length && (plan === "hogar" || plan === "empresa")){
+        await loadHistory(plan, plan === "empresa" ? "6m" : "30d");
+    }
+    if (!window.rawSensorData?.length){
+        alert("Todavia no hay lecturas para exportar. Si el equipo acaba de instalarse, espera a que envie su primera medicion.");
+        return;
+    }
+
     const DIAS=["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
     const hoy=new Date().toISOString().slice(0,10), now=new Date().toLocaleString("es-CL");
     const V=["","","","","","","",""];
