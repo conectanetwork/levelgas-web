@@ -3361,7 +3361,10 @@ async function updateAll(){
         refreshChartVirtuals();
         if (!window.currentPlan || window.currentPlan === 'free') {
             const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
-            window.rawSensorData = _serieValida(data, empty).filter(r => _fechaUTC(r.created_at).getTime() >= cutoff24h);
+            const serie24 = _serieValida(data, empty);
+            const prev24  = serie24.filter(r => _fechaUTC(r.created_at).getTime() <  cutoff24h);
+            window._filaAncla    = prev24.length ? prev24[prev24.length - 1] : null;
+            window.rawSensorData = serie24.filter(r => _fechaUTC(r.created_at).getTime() >= cutoff24h);
         }
         renderRecordsTable(data, empty);
         await Promise.all([updateDaysRemaining(net), updateDailyConsumption(data)]);
@@ -3437,11 +3440,20 @@ function _ejeCalendario(hastaMs, n, isWeekly){
     return { keys, iniMs: ini };
 }
 /* Consumo real por periodo: suma de las CAIDAS de peso entre lecturas
-   consecutivas, repartida en proporcion al tiempo que abarca cada intervalo
-   (un intervalo de 3 dias ya no carga todo el gas en el ultimo dia). Las
-   subidas de peso -recarga o cambio de cilindro- no cuentan como consumo, asi
-   que el calculo es correcto incluso cuando el cycle_id no cambio en un
-   recambio. Lo que cae fuera del eje se descarta. */
+   consecutivas. Las subidas -recarga o cambio de cilindro- no cuentan, asi que
+   el calculo es correcto incluso cuando el cycle_id no cambio en un recambio.
+
+   [04/09/2026] Cada caida se asigna ENTERA al dia de la lectura que la cierra,
+   que es el mismo criterio de la hoja "Lecturas" del Excel. Antes se repartia
+   en proporcion al tiempo del intervalo, y eso hacia que el grafico y el Excel
+   dieran distinto dia por dia aunque el total coincidiera.
+   El reparto proporcional parecia mas fino, pero supone consumo uniforme
+   dentro del intervalo, y justo donde mas pesaba -los intervalos largos de
+   madrugada, de 8 o 9 horas- esa suposicion es la mas falsa: nadie quema gas
+   a ritmo constante mientras duerme. A cambio costaba lo unico que el cliente
+   necesita para confiar en el numero: poder senalar la fila que lo produjo.
+   Una sola definicion de consumo diario para el grafico, el PDF y el Excel.
+   Lo que cae fuera del eje se descarta. */
 function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
     rows = _serieValida(rows, empty);   // fuera las lecturas fallidas antes de comparar
     const buckets = {};
@@ -3466,15 +3478,8 @@ function _agregarConsumo(rows, isWeekly, ejeKeys, empty){
             if (dw < -0.5){ const b = get(t1); if (b) b.recargas += 1; }
             continue;
         }
-        let cur = t0, guardia = 0;
-        while (cur < t1 && guardia++ < 500){
-            let fin = _finBucketMs(cur, isWeekly);
-            if (!(fin > cur)) fin = t1;
-            fin = Math.min(fin, t1);
-            const b = get(cur);
-            if (b) b.consumo += dw * ((fin - cur) / (t1 - t0));
-            cur = fin;
-        }
+        const b = get(t1);          // el dia en que se cierra la caida
+        if (b) b.consumo += dw;
     }
     return ejeKeys.map(k => buckets[k]);
 }
@@ -3503,6 +3508,12 @@ async function loadHistory(plan, period){
         // el borde solo se puede reconocer mientras conserve sus dos vecinas.
         const dataV = _serieValida(data || [], empty);
         const enEje = dataV.filter(r => _fechaUTC(r.created_at).getTime() >= iniMs);
+        /* Ultima lectura ANTERIOR al eje. No se muestra -queda fuera del periodo-
+           pero el Excel la necesita para calcular el consumo de su primera fila:
+           sin ella arrancaria en 0 y no cuadraria con el grafico, que si cuenta
+           esa caida. */
+        const previas = dataV.filter(r => _fechaUTC(r.created_at).getTime() < iniMs);
+        window._filaAncla = previas.length ? previas[previas.length - 1] : null;
         window.rawSensorData = enEje;              // exportaciones = periodo del plan
         renderRecordsTable(enEje, empty);
         if (!dataV.length){ window.historyData = []; return; }
@@ -3794,7 +3805,10 @@ async function exportCSV(){
     csv     += `"Exportado:","${new Date().toLocaleString("es-CL")}"\n"Peso vacio:","${empty.toFixed(2)} kg"\n`;
     csv     += `"Nota:","Consumo = caida de peso respecto de la lectura anterior. Las subidas (recarga o cambio de cilindro) no cuentan como consumo."\n\n`;
     csv     += `"Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Consumo (kg)","Voltaje (V)"\n`;
-    let cc=null, cr=0, ccon=0, cprev=null;
+    // Se arranca desde la ultima lectura previa al periodo (si existe), para que
+    // la primera fila muestre su consumo real y el total cuadre con el grafico.
+    let cc=null, cr=0, ccon=0,
+        cprev = window._filaAncla ? (_netoDe(window._filaAncla, empty) ?? null) : null;
     window.rawSensorData.forEach((row,i)=>{
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
@@ -3832,11 +3846,14 @@ function exportExcel(){
         ["LevelGas PRO - Historial de lecturas","","","","","","",""],
         [`Plan: ${plan.toUpperCase()}`,`Periodo: ${plan==="hogar"?"30 dias":"6 meses"}`,`Exportado: ${now}`,`Peso vacio: ${empty.toFixed(2)} kg`,"","","",""],
         ["Consumo = caida de peso respecto de la lectura anterior. Las subidas (recarga o cambio de cilindro) no cuentan como consumo.","","","","","","",""],
-        ["Para el consumo por dia usar la hoja 'Resumen diario': es la misma cifra del grafico y del PDF. Ahi el gas de un intervalo que cruza la medianoche se reparte entre ambos dias segun el tiempo, cosa que esta hoja no puede hacer porque cada fila pertenece a una sola fecha.","","","","","","",""],
+        ["El consumo por dia esta en la hoja 'Resumen diario', y es la suma de esta columna agrupada por fecha: la misma cifra que muestran el grafico y el reporte PDF.","","","","","","",""],
         V.slice(),
         ["Fecha","Hora","Dia","Ciclo","Peso bruto (kg)","Peso neto (kg)","Consumo (kg)","Voltaje (V)"]
     ];
-    const res={}; let cc=null,cw0=null,cwe=null,cr=0,cd0="",cde="",ccon=0,cprev=null;
+    // Se arranca desde la ultima lectura previa al periodo (si existe), para que
+    // la primera fila muestre su consumo real y el total cuadre con el grafico.
+    const res={}; let cc=null,cw0=null,cwe=null,cr=0,cd0="",cde="",ccon=0,
+        cprev = window._filaAncla ? (_netoDe(window._filaAncla, empty) ?? null) : null;
     window.rawSensorData.forEach((row,i)=>{
         const cy=row.cycle_id||1, d=toChileDate(row.created_at);
         const f=`${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
@@ -3886,8 +3903,8 @@ function exportExcel(){
         const r3=[
             [`LevelGas PRO - Resumen ${esSem?"semanal":"diario"}`,"","",""],
             [`Exportado: ${now}`,"","",""],
-            ["Estas cifras son las mismas del grafico y del reporte PDF.","","",""],
-            ["El gas de un intervalo que cruza la medianoche se reparte entre los dos dias en proporcion al tiempo transcurrido. Por eso un dia puede no coincidir con la suma de la columna Consumo de la hoja Lecturas, donde cada caida se asigna entera a la fecha de su lectura final. El total del periodo si coincide.","","",""],
+            ["Estas cifras son las mismas del grafico y del reporte PDF, y equivalen a sumar la columna Consumo de la hoja Lecturas agrupando por fecha.","","",""],
+            ["Cada caida de peso se asigna entera al dia de la lectura que la cierra, de modo que todo kilo mostrado aqui se puede rastrear hasta una fila concreta de la hoja Lecturas.","","",""],
             ["s/d = sin lecturas en el periodo","","",""],
             ["","","",""],
             [esSem?"Semana (inicio)":"Fecha","Consumo (kg)","Ciclo","Lecturas"]
