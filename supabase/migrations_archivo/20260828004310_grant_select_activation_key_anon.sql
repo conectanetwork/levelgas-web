@@ -1,0 +1,19 @@
+-- ═══════════════════════════════════════════════════════════════════
+-- activation_key: devolver el SELECT a anon   [2026-08-28]
+--
+-- Con RLS activo, INSERT ... ON CONFLICT DO UPDATE exige SELECT sobre cada
+-- columna que escribe, no solo UPDATE: la política WITH CHECK debe evaluarse
+-- contra la fila resultante. El endurecimiento del 22/08 le quitó a anon el
+-- SELECT de activation_key, y por eso el registro del ESP32 moría con
+-- 42501 "permission denied for table devices" pese a tener el UPDATE.
+--
+-- Aislado en banco el 28/08/2026:
+--   do update set device_id      (SELECT sí, UPDATE sí) → OK
+--   do update set wifi_ssid      (SELECT sí, UPDATE sí) → OK
+--   do update set activation_key (SELECT NO, UPDATE sí) → FALLA
+--
+-- No hay filtración: activation_key es idéntica a device_id en las 4 filas
+-- (ambas derivadas del MAC, que ya viaja en la URL del dashboard) y device_id
+-- ya era legible. access_key —la clave real del cliente— sigue sin SELECT.
+-- ═══════════════════════════════════════════════════════════════════
+grant select (activation_key) on public.devices to anon, authenticated;;
