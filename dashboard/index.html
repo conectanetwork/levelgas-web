@@ -4095,12 +4095,40 @@ async function confirmContactAndPay(){
     // Guardar localmente para futuras compras
     localStorage.setItem("lg_contact_email", email);
     if (phone) localStorage.setItem("lg_contact_phone", phone);
-    // Guardar en Supabase (devices.user_email y user_phone)
+    /* PARCHE [seguridad 2026-09-06]: el UPDATE directo sobre devices.user_email
+       permitia apuntar el correo de recuperacion de un equipo AJENO a la casilla
+       de quien fuera (la politica RLS es USING(true), sin predicado de fila) y
+       despues secuestrar la cuenta por el flujo de access-recovery. set_access_key
+       ya protegia ese campo con COALESCE, pero escribir directo a la tabla salteaba
+       esa defensa. Ahora pasa por RPC que valida la clave server-side, igual que
+       reset_cylinder_history. */
     try {
-        await db.from("devices")
-            .update({ user_email: email, user_phone: phone || null })
-            .eq("device_mac", device);
-    } catch(e){ console.warn("[contact] No se pudo guardar en Supabase:", e); }
+        const { data: rc, error: rcErr } = await db.rpc("set_recovery_contact", {
+            p_device_mac: device,
+            p_email:      email,
+            p_phone:      phone || null,
+            p_access_key: _claveGuardada() || null
+        });
+        if (rcErr) throw rcErr;
+
+        if (rc !== "ok") {
+            errEl.textContent = ({
+                correo_invalido:         "El correo no es valido.",
+                sin_dispositivo:         "No se encontro la bascula.",
+                requiere_clave:          "Ingresa la clave de acceso de la bascula para registrar el correo.",
+                clave_actual_incorrecta: "La clave de acceso no coincide.",
+                requiere_codigo:         "Este equipo ya tiene correo registrado. Usa \u00abRecuperar acceso\u00bb."
+            })[rc] || ("No se pudo guardar el contacto (" + rc + ").");
+            errEl.style.display = "block";
+            return;   /* [DECISION] Borra este return para volver a la conducta anterior:
+                         seguir al pago aunque el contacto no se haya guardado. */
+        }
+    } catch(e){
+        console.warn("[contact] No se pudo guardar en Supabase:", e);
+        errEl.textContent = "No se pudo guardar el contacto. Revisa tu conexion e intentalo otra vez.";
+        errEl.style.display = "block";
+        return;       /* [DECISION] Idem: borra este return para no bloquear el pago. */
+    }
     // Cerrar modal y proceder al pago
     document.getElementById("modal-contact").classList.remove("open");
     const plan = window._pendingPlan;
