@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
+<meta name="lg-build" content="p1-bateria-ios-20260908">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1010,7 +1011,46 @@ header{
 <span id="gauge-label" style="display:none"></span>
 
 <script>
-/* ═══════════════════════════════════════════
+/* PARCHE [iOS 2026-09-08] - ALMACENAMIENTO SEGURO
+   En Safari iOS, con "Bloquear todas las cookies" activado o en Modo Bloqueo,
+   tanto leer window.localStorage como llamar a setItem() LANZAN excepcion en
+   vez de devolver null. Habia accesos sin try/catch en el arranque del script
+   (device_mac en la linea del params.get('device'), y access_key mas abajo),
+   asi que la excepcion mataba TODO el resto del archivo: en iPhone el dashboard
+   quedaba en blanco mientras en Android funcionaba. Aqui se prueba el
+   almacenamiento una sola vez y, si no sirve, se sustituye por un respaldo en
+   memoria con la misma interfaz, de modo que los ~72 accesos repartidos por el
+   archivo dejan de poder romper la pagina. En ese modo degradado los datos no
+   persisten entre recargas, pero el dashboard carga y el usuario puede
+   reingresar su clave. */
+(function(){
+    function sirve(s){
+        try { var k='__lg_probe__'; s.setItem(k,'1'); s.removeItem(k); return true; }
+        catch(e){ return false; }
+    }
+    function reemplazar(nombre){
+        var mem = Object.create(null);
+        var falso = {
+            getItem:    function(k){ return (k in mem) ? mem[k] : null; },
+            setItem:    function(k,v){ mem[k] = String(v); },
+            removeItem: function(k){ delete mem[k]; },
+            clear:      function(){ for (var k in mem) delete mem[k]; },
+            key:        function(i){ var a=Object.keys(mem); return i<a.length ? a[i] : null; },
+            get length(){ return Object.keys(mem).length; }
+        };
+        try {
+            Object.defineProperty(window, nombre, { value: falso, configurable: true, writable: true });
+            console.warn('[storage] ' + nombre + ' no disponible: respaldo en memoria.');
+        } catch(e){ console.error('[storage] no se pudo sustituir ' + nombre, e); }
+    }
+    var nombres = ['localStorage','sessionStorage'];
+    for (var i = 0; i < nombres.length; i++){
+        var ok = false;
+        try { ok = sirve(window[nombres[i]]); } catch(e){ ok = false; }
+        if (!ok) reemplazar(nombres[i]);
+    }
+})();
+/* ===========================================
    SUPABASE
 ═══════════════════════════════════════════ */
 const SUPABASE_URL      = "https://uooftjtllmsnugdcldvc.supabase.co";
@@ -2101,8 +2141,16 @@ async function registerCylinderChange(){
 /* ═══════════════════════════════════════════
    BATERÍA
 ═══════════════════════════════════════════ */
-const BAT_MIN = 3.3, BAT_MAX = 4.8, BAT_WARN_V = 3.5;
-const BAT_CRIT_V = 4.2;
+/* PARCHE [bateria 2026-09-08]: BAT_CRIT_V estaba en 4.2 V, es decir POR ENCIMA
+   de BAT_WARN_V (3.5 V). La condicion v <= BAT_CRIT_V se cumplia con pilas
+   nuevas, asi que la alarma de "bateria critica" quedaba encendida siempre.
+   Umbrales nuevos: el MCP1700 deja de regular alrededor de 3.5-3.65 V (dropout
+   178 mV tipico, 350 mV a 250 mA) y el modem tira picos de 0.5 A que hunden el
+   pack, asi que hay que avisar antes de llegar ahi, no al tocar los 3.3 V.
+     3.70 V -> bateria baja  (~27 %) : avisar, aun quedan dias
+     3.55 V -> critica       (~17 %) : reemplazar ya */
+const BAT_MIN = 3.3, BAT_MAX = 4.8, BAT_WARN_V = 3.70;
+const BAT_CRIT_V = 3.55;
 const BAT_CAL_FACTOR = 1.090;
 const BAT_CAL_OFFSET = 0.000;
 function updateBattery(v){
@@ -2118,8 +2166,8 @@ function updateBattery(v){
     const txt = document.getElementById("bat-text");
     txt.innerText = v.toFixed(2) + "V  " + pct.toFixed(0) + "%";
     txt.style.color = col;
-    document.getElementById("bat-low-badge").classList.toggle("on", v <= BAT_WARN_V);
-    document.getElementById("bat-crit-badge").classList.toggle("on", v <= BAT_CRIT_V && v > BAT_WARN_V);
+    document.getElementById("bat-low-badge").classList.toggle("on", v <= BAT_WARN_V && v > BAT_CRIT_V);
+    document.getElementById("bat-crit-badge").classList.toggle("on", v <= BAT_CRIT_V);
     _updateBatStatus(v, pct);
 }
 /* ═══════════════════════════════════════════
@@ -2374,7 +2422,7 @@ function _updateBatStatus(v, pct){
             critRow.style.display = "none";
         }
     }
-    if (v <= BAT_WARN_V){
+    if (v <= BAT_WARN_V && v > BAT_CRIT_V){
         lbl.innerText = `Batería baja — ${v.toFixed(2)}V (${pct.toFixed(0)}%)`;
         row.style.display = "flex";
     } else {
