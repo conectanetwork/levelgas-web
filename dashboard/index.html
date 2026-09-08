@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p1-bateria-ios-20260908">
+<meta name="lg-build" content="p2-sw-red-primero-20260908">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -4334,8 +4334,18 @@ async function installPWA(){
     else if (isIOS) document.getElementById('modal-ios').classList.add('open');
 }
 if ('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js', { scope: './' }).then(r=>r.update()).catch(e=>console.error('[SW]',e));
-    if ('caches' in window) caches.keys().then(ks=>ks.filter(k=>k.startsWith('levelgas-') && k!=='levelgas-v8-dashboard-domain').forEach(k=>caches.delete(k)));
+    /* PARCHE [cache 2026-09-08]
+       1. updateViaCache:'none' obliga a revalidar sw.js contra la red en cada
+          visita. Sin esto Safari puede seguir usando su copia del propio worker.
+       2. Se elimina el borrado de caches que hacia esta pagina: filtraba por
+          'levelgas-v8-dashboard-domain', un nombre que el sw.js ya no usa, asi
+          que en cada carga borraba la cache del worker vigente y dejaba al
+          dashboard sin respaldo para abrir sin señal. La limpieza de versiones
+          viejas la hace el propio sw.js en su evento 'activate', que es donde
+          corresponde. */
+    navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' })
+        .then(r => r.update())
+        .catch(e => console.error('[SW]', e));
 }
 </script>
 <!-- ═══════════════════════════════════════════
