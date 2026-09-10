@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p2-sw-red-primero-20260908">
+<meta name="lg-build" content="p1-bateria-ios-20260908">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1011,46 +1011,47 @@ header{
 <span id="gauge-label" style="display:none"></span>
 
 <script>
-/* PARCHE [iOS 2026-09-08] - ALMACENAMIENTO SEGURO
+/* ═══════════════════════════════════════════
+   PARCHE [iOS 2026-09-08] · ALMACENAMIENTO SEGURO
+   ───────────────────────────────────────────
    En Safari iOS, con "Bloquear todas las cookies" activado o en Modo Bloqueo,
    tanto leer window.localStorage como llamar a setItem() LANZAN excepcion en
    vez de devolver null. Habia accesos sin try/catch en el arranque del script
-   (device_mac en la linea del params.get('device'), y access_key mas abajo),
-   asi que la excepcion mataba TODO el resto del archivo: en iPhone el dashboard
-   quedaba en blanco mientras en Android funcionaba. Aqui se prueba el
-   almacenamiento una sola vez y, si no sirve, se sustituye por un respaldo en
-   memoria con la misma interfaz, de modo que los ~72 accesos repartidos por el
-   archivo dejan de poder romper la pagina. En ese modo degradado los datos no
-   persisten entre recargas, pero el dashboard carga y el usuario puede
-   reingresar su clave. */
+   (device_mac, access_key), asi que la excepcion mataba TODO el resto del
+   archivo: en iPhone el dashboard quedaba en blanco mientras en Android
+   funcionaba. Aqui se prueba el almacenamiento una sola vez y, si no sirve, se
+   sustituye por un respaldo en memoria con la misma interfaz. De ese modo los
+   ~72 accesos que hay repartidos por el archivo dejan de poder romper la
+   pagina. Los datos no persisten entre recargas en ese modo degradado, pero el
+   dashboard carga y el usuario puede reingresar su clave.
+═══════════════════════════════════════════ */
 (function(){
     function sirve(s){
-        try { var k='__lg_probe__'; s.setItem(k,'1'); s.removeItem(k); return true; }
+        try { const k='__lg_probe__'; s.setItem(k,'1'); s.removeItem(k); return true; }
         catch(e){ return false; }
     }
     function reemplazar(nombre){
-        var mem = Object.create(null);
-        var falso = {
-            getItem:    function(k){ return (k in mem) ? mem[k] : null; },
-            setItem:    function(k,v){ mem[k] = String(v); },
-            removeItem: function(k){ delete mem[k]; },
-            clear:      function(){ for (var k in mem) delete mem[k]; },
-            key:        function(i){ var a=Object.keys(mem); return i<a.length ? a[i] : null; },
+        const mem = Object.create(null);
+        const falso = {
+            getItem:  k => (k in mem ? mem[k] : null),
+            setItem:  (k,v) => { mem[k] = String(v); },
+            removeItem: k => { delete mem[k]; },
+            clear:    () => { for (const k in mem) delete mem[k]; },
+            key:      i => Object.keys(mem)[i] ?? null,
             get length(){ return Object.keys(mem).length; }
         };
         try {
             Object.defineProperty(window, nombre, { value: falso, configurable: true, writable: true });
-            console.warn('[storage] ' + nombre + ' no disponible: respaldo en memoria.');
+            console.warn('[storage] ' + nombre + ' no disponible: usando respaldo en memoria.');
         } catch(e){ console.error('[storage] no se pudo sustituir ' + nombre, e); }
     }
-    var nombres = ['localStorage','sessionStorage'];
-    for (var i = 0; i < nombres.length; i++){
-        var ok = false;
-        try { ok = sirve(window[nombres[i]]); } catch(e){ ok = false; }
-        if (!ok) reemplazar(nombres[i]);
+    for (const nombre of ['localStorage','sessionStorage']){
+        let ok = false;
+        try { ok = sirve(window[nombre]); } catch(e){ ok = false; }
+        if (!ok) reemplazar(nombre);
     }
 })();
-/* ===========================================
+/* ═══════════════════════════════════════════
    SUPABASE
 ═══════════════════════════════════════════ */
 const SUPABASE_URL      = "https://uooftjtllmsnugdcldvc.supabase.co";
@@ -2144,7 +2145,7 @@ async function registerCylinderChange(){
 /* PARCHE [bateria 2026-09-08]: BAT_CRIT_V estaba en 4.2 V, es decir POR ENCIMA
    de BAT_WARN_V (3.5 V). La condicion v <= BAT_CRIT_V se cumplia con pilas
    nuevas, asi que la alarma de "bateria critica" quedaba encendida siempre.
-   Umbrales nuevos: el MCP1700 deja de regular alrededor de 3.5-3.65 V (dropout
+   Nuevos umbrales: el MCP1700 deja de regular alrededor de 3.5-3.65 V (dropout
    178 mV tipico, 350 mV a 250 mA) y el modem tira picos de 0.5 A que hunden el
    pack, asi que hay que avisar antes de llegar ahi, no al tocar los 3.3 V.
      3.70 V -> bateria baja  (~27 %) : avisar, aun quedan dias
@@ -4334,18 +4335,8 @@ async function installPWA(){
     else if (isIOS) document.getElementById('modal-ios').classList.add('open');
 }
 if ('serviceWorker' in navigator){
-    /* PARCHE [cache 2026-09-08]
-       1. updateViaCache:'none' obliga a revalidar sw.js contra la red en cada
-          visita. Sin esto Safari puede seguir usando su copia del propio worker.
-       2. Se elimina el borrado de caches que hacia esta pagina: filtraba por
-          'levelgas-v8-dashboard-domain', un nombre que el sw.js ya no usa, asi
-          que en cada carga borraba la cache del worker vigente y dejaba al
-          dashboard sin respaldo para abrir sin señal. La limpieza de versiones
-          viejas la hace el propio sw.js en su evento 'activate', que es donde
-          corresponde. */
-    navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' })
-        .then(r => r.update())
-        .catch(e => console.error('[SW]', e));
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).then(r=>r.update()).catch(e=>console.error('[SW]',e));
+    if ('caches' in window) caches.keys().then(ks=>ks.filter(k=>k.startsWith('levelgas-') && k!=='levelgas-v8-dashboard-domain').forEach(k=>caches.delete(k)));
 }
 </script>
 <!-- ═══════════════════════════════════════════
