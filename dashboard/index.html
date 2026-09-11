@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p4-temperatura-en-grafico-20260911">
+<meta name="lg-build" content="p5-temperatura-consulta-correcta-20260911">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -3371,7 +3371,7 @@ async function updateAll(){
         const full  = parseFloat(fullStr);
         const supportWindowIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         let { data, error: sErr } = await db.from("sensor_data")
-            .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
+            .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature")
             .eq("device_id", window.currentDeviceId)
             .eq("cycle_id", cycle)
             .gte("created_at", supportWindowIso)
@@ -3382,7 +3382,7 @@ async function updateAll(){
         // Se usa para display, registros y el punto actual; nunca se dibuja con su fecha antigua.
         if (!data?.length) {
             const { data: latestFallback, error: latestFallbackErr } = await db.from("sensor_data")
-                .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid")
+                .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature")
                 .eq("device_id", window.currentDeviceId)
                 .eq("cycle_id", cycle)
                 .order("created_at", { ascending: false })
