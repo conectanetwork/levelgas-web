@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p3-bateria-unificada-20260910">
+<meta name="lg-build" content="p4-temperatura-en-grafico-20260911">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2610,7 +2610,7 @@ async function updateDaysRemaining(net){
             .eq("event_type", "cylinder_change")
             .order("created_at", { ascending: false }).limit(1);
         const leer = async (desde) => {
-            const { data, error } = await db.from("sensor_data").select("created_at,weight,empty_weight")
+            const { data, error } = await db.from("sensor_data").select("created_at,weight,empty_weight,temperature")
                 .eq("device_id", window.currentDeviceId)
                 .gte("created_at", desde).order("created_at", { ascending: true });
             if (error) throw error;
@@ -2710,17 +2710,26 @@ function _crearChartPrincipal(isHistory){
             : { label:'Gas (kg)', data:[],
                 borderColor:"#10b981", borderWidth:2, tension:.18,
                 pointRadius:3, pointBackgroundColor:"#10b981",
-                fill:true, backgroundColor:'rgba(16,185,129,.10)' }
+                fill:true, backgroundColor:'rgba(16,185,129,.10)', yAxisID:'y' }
         ]},
         options:{
             responsive:true, maintainAspectRatio:false,
-            plugins:{ legend:{display:false},
-                tooltip:{ callbacks:{ label: c =>
-                    (isHistory ? 'Consumo: ' : 'Peso: ') + (c.parsed.y ?? 0).toFixed(2) + ' kg' }}},
+            plugins:{ legend:{ display:false, labels:{ color:'#94a3b8', boxWidth:12, font:{size:11} } },
+                tooltip:{ callbacks:{ label: c => c.dataset.yAxisID === 'y1'
+                    ? 'Temperatura: ' + (c.parsed.y ?? 0).toFixed(1) + ' °C'
+                    : (isHistory ? 'Consumo: ' : 'Peso: ') + (c.parsed.y ?? 0).toFixed(2) + ' kg' }}},
             scales:{
-                y:{ beginAtZero:!!isHistory,
+                y:{ beginAtZero:!!isHistory, position:'left',
                     ticks:{ color:'#94a3b8', callback: v=>v.toFixed(isHistory?2:1)+' kg' },
                     grid:{ color:'rgba(148,163,184,.1)' }},
+                /* PARCHE [temperatura 2026-09-11]: eje derecho independiente.
+                   Se crea siempre pero arranca oculto: solo aparece si el equipo
+                   esta reportando sensor_data.temperature (firmware v81.07+).
+                   Va en su propio eje porque los kg y los grados no comparten
+                   escala; forzarlos al mismo eje aplastaria la curva de peso. */
+                y1:{ display:false, position:'right',
+                     ticks:{ color:'#f59e0b', callback: v=>v.toFixed(0)+' °C' },
+                     grid:{ drawOnChartArea:false }},
                 x:{ ticks:{ color:'#94a3b8', maxTicksLimit: isHistory?15:8 }, grid:{ display:false }}
             }
         }
@@ -2837,6 +2846,12 @@ function confirmResetPressed(){
     if (window.chartInstance){
         window.chartInstance.data.labels = [];
         window.chartInstance.data.datasets[0].data = [];
+        // PARCHE [temperatura 2026-09-11]: quitar tambien la serie secundaria.
+        if (window.chartInstance.data.datasets.length > 1){
+            window.chartInstance.data.datasets.length = 1;
+            window.chartInstance.options.scales.y1.display = false;
+            window.chartInstance.options.plugins.legend.display = false;
+        }
         window.chartInstance.update();
     }
     // Guardar calibración con pending_reboot=false inmediatamente.
@@ -3248,6 +3263,32 @@ function refreshChartVirtuals(){
     updateChartColors(false);
     window.chartInstance.data.labels           = chartRows.map(r => fmtShort(r.created_at));
     window.chartInstance.data.datasets[0].data = chartRows.map(r => _netoDe(r, empty));
+    /* PARCHE [temperatura 2026-09-11]
+       sensor_data.temperature es la temperatura del DIE del ESP32-C3, que el
+       firmware v81.07+ lee al despertar, antes de encender nada. No es
+       temperatura ambiente: es la de la estructura donde va montada la celda,
+       que es la variable que hace derivar la medicion.
+       Es un dato de DIAGNOSTICO, no de producto: la serie y su eje solo
+       aparecen si el equipo la esta reportando. Un equipo con firmware anterior
+       ve exactamente el grafico de antes. */
+    const tempSerie = chartRows.map(r => (r && r.temperature != null && !r._virtual)
+                                         ? +Number(r.temperature).toFixed(1) : null);
+    const hayTemp = tempSerie.some(v => v != null);
+    const ds = window.chartInstance.data.datasets;
+    if (hayTemp && !window._chartEsHistorial){
+        if (ds.length < 2){
+            ds.push({ label:'Temperatura (°C)', data:[], yAxisID:'y1',
+                      borderColor:'#f59e0b', borderWidth:1.5, borderDash:[5,4],
+                      tension:.25, pointRadius:0, fill:false, spanGaps:true });
+        }
+        ds[1].data = tempSerie;
+        window.chartInstance.options.scales.y1.display   = true;
+        window.chartInstance.options.plugins.legend.display = true;
+    } else if (ds.length > 1){
+        ds.length = 1;
+        window.chartInstance.options.scales.y1.display   = false;
+        window.chartInstance.options.plugins.legend.display = false;
+    }
     updateChartYMax();
     window.chartInstance.update();
 }
