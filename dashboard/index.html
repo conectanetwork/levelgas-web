@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p6-temperatura-en-tabla-20260912">
+<meta name="lg-build" content="p7-umbrales-bateria-firmware-v8108-20260912">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2149,8 +2149,22 @@ async function registerCylinderChange(){
    pack, asi que hay que avisar antes de llegar ahi, no al tocar los 3.3 V.
      3.70 V -> bateria baja  (~27 %) : avisar, aun quedan dias
      3.55 V -> critica       (~17 %) : reemplazar ya */
-const BAT_MIN = 3.3, BAT_MAX = 4.8, BAT_WARN_V = 3.70;
-const BAT_CRIT_V = 3.55;
+/* PARCHE [bateria 2026-09-12]: alineado con el firmware v81.08, que fija estos
+   mismos valores en FIJO_BAT_V_MIN / FIJO_BAT_V_MAX / FIJO_ALARMA_*. Habia dos
+   desacuerdos:
+     1. BAT_MIN estaba en 3.3 V, un voltaje que el pack no alcanza nunca: el
+        MCP1700 deja de regular entre 3.48 y 3.65 V. Con 3.3 como cero, el
+        dashboard mostraba ~12 puntos de carga que no existen (4.08 V daba 52 %
+        aqui y 40 % en el equipo). El cero util es el punto donde el regulador
+        se rinde, no el datasheet de la pila. 3.60 V.
+     2. BAT_CRIT_V en 3.55 V caia DENTRO de esa banda de dropout: la alarma
+        critica habria llegado con el equipo ya inestable o reiniciandose.
+   Umbrales nuevos, identicos a los del firmware por construccion
+   (MIN + offset x rango, offsets 0.30 y 0.10):
+     3.90 V -> bateria baja  (25 %)  : avisar, aun quedan semanas
+     3.70 V -> critica       (8 %)   : reemplazar ya, antes del dropout */
+const BAT_MIN = 3.60, BAT_MAX = 4.8, BAT_WARN_V = 3.90;
+const BAT_CRIT_V = 3.70;
 /* PARCHE [bateria 2026-09-10]: 1.090 -> 1.000.
    Ese 1.090 era una correccion empirica que vivia SOLO aqui: alguien midio el
    pack con tester, vio que la web marcaba 9 % bajo y parcho el dashboard en vez
