@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p7-umbrales-bateria-firmware-v8108-20260912">
+<meta name="lg-build" content="p9-recambio-tz-y-permisos-rpc-20260912">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1111,6 +1111,19 @@ function _rpcNoDisponible(error){
         || msg.includes('could not find the function')
         || msg.includes('does not exist');
 }
+/* PARCHE [permisos 2026-09-12]: una funcion que existe pero a la que anon no
+   tiene EXECUTE devuelve 42501, no PGRST202, asi que _rpcNoDisponible() la daba
+   por buena y el error caia en el "intentalo de nuevo" generico. Fue justo lo
+   que paso con handover_to_client y reset_access_key: el paso 0 de seguridad
+   revoco el EXECUTE publico y concedio funcion por funcion, y esas dos quedaron
+   fuera de la lista. El boton fallaba sin decir por que y el mensaje apuntaba al
+   lugar equivocado. Un fallo de permiso tiene que nombrarse a si mismo. */
+function _rpcSinPermiso(error){
+    if (!error) return false;
+    const cod = String(error.code || '');
+    const msg = String(error.message || '').toLowerCase();
+    return cod === '42501' || msg.includes('permission denied');
+}
 function _guardarClaveLocal(valor){
     const v = (valor || '').trim();
     window._accessKeySession = v;
@@ -1585,9 +1598,13 @@ async function prepararParaCliente(){
         if (error){
             if (_rpcNoDisponible(error)){
                 alert('Esta función requiere la migración 202608110001. Aplícala en Supabase antes de usarla.');
+            } else if (_rpcSinPermiso(error)){
+                alert('La base rechazó la operación por permisos: falta GRANT EXECUTE sobre '
+                    + 'handover_to_client para el rol anon. Es un ajuste en Supabase, no en la báscula.');
             } else {
-                console.warn('[handover]', error.message || error);
-                alert('No se pudo preparar la báscula. Inténtalo de nuevo.');
+                console.warn('[handover]', error.message || error, error.code || '');
+                alert('No se pudo preparar la báscula. Inténtalo de nuevo.\n\nDetalle: '
+                    + (error.message || error) + (error.code ? ' [' + error.code + ']' : ''));
             }
             return;
         }
@@ -2258,15 +2275,40 @@ async function checkRecambioNoRegistrado(){
             .select("created_at").eq("device_id", window.currentDeviceId)
             .eq("event_type", "cylinder_change").gte("created_at", desde);
         const tiempos = (evs || []).map(e => _fechaUTC(e.created_at).getTime());
+        /* PARCHE [recambio 2026-09-12] · AQUI SE COMPARABAN DOS RELOJES DISTINTOS
+           sensor_data.created_at es `timestamp without time zone`: PostgREST lo
+           devuelve SIN sufijo Z ("2026-09-12T02:55:22.980558") y new Date() lo
+           interpreta como hora LOCAL, corriendolo 3-4 h al futuro en Chile.
+           cylinder_events.created_at, en cambio, es `timestamptz` y llega con
+           "+00:00", o sea correcto. La ventana de busqueda quedaba desplazada
+           esas mismas horas, el evento registrado caia fuera, y el aviso
+           declaraba "no registrado" un cambio que SI estaba en la tabla. Por eso
+           no habia forma de apagarlo.
+           Comprobado con los datos reales del 11/09: el salto quedo a las
+           02:55:22 UTC y el evento a las 02:56:21 UTC — 59 segundos despues —
+           y aun asi no coincidian.
+           El 29/08 si coincidio por azar: el hueco entre lecturas era de 10 h y
+           la ventana desplazada alcanzo a tragarse el evento igual. De ahi que
+           el defecto pareciera intermitente.
+           Regla del archivo, ya escrita en _fechaUTC(): TODA conversion de
+           created_at a milisegundos pasa por ahi. Estas dos se habian escapado. */
         const sinRegistrar = saltos.filter(sa => {
             if (sa.ciclo1 !== sa.ciclo0) return false;                 // el ciclo si avanzo
-            const a = new Date(sa.t0).getTime() - RECAMBIO_VENTANA_MS;
-            const b = new Date(sa.t1).getTime() + RECAMBIO_VENTANA_MS;
+            const a = _fechaUTC(sa.t0).getTime() - RECAMBIO_VENTANA_MS;
+            const b = _fechaUTC(sa.t1).getTime() + RECAMBIO_VENTANA_MS;
             return !tiempos.some(t => t >= a && t <= b);
         });
         if (!sinRegistrar.length){ box.classList.remove("on"); return; }
         const ult = sinRegistrar[sinRegistrar.length - 1];
-        if (localStorage.getItem("lg_recambio_visto") === ult.t1){ box.classList.remove("on"); return; }
+        /* PARCHE [recambio 2026-09-12]: "Ya lo registre" guardaba la marca exacta
+           del ultimo salto y la comparaba por igualdad de texto. Bastaba un salto
+           posterior —incluido el ruido de apoyarse en la bascula— para que el
+           aviso reapareciera con otra fecha. Ahora se guarda el instante y se
+           silencia todo lo anterior o igual: solo un cambio genuinamente nuevo
+           lo reabre. */
+        const _visto   = localStorage.getItem("lg_recambio_visto");
+        const _vistoMs = _visto ? _fechaUTC(_visto).getTime() : 0;
+        if (_vistoMs && _fechaUTC(ult.t1).getTime() <= _vistoMs){ box.classList.remove("on"); return; }
         window._recambioUltimo = ult.t1;
         document.getElementById("recambio-msg").innerHTML =
             `Detectamos un cilindro nuevo el <strong>${fmtShort(ult.t1)}</strong> (+${ult.alza.toFixed(1)} kg) `
