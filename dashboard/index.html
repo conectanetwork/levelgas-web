@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p5-temperatura-consulta-correcta-20260911">
+<meta name="lg-build" content="p6-temperatura-en-tabla-20260912">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -888,11 +888,11 @@ header{
         <table class="records-table">
           <thead>
             <tr>
-              <th>Fecha / Hora</th><th>Nivel</th><th>Peso Neto</th><th>Voltaje</th><th>Estado</th>
+              <th>Fecha / Hora</th><th>Nivel</th><th>Peso Neto</th><th>Voltaje</th><th>Temp.</th><th>Estado</th>
             </tr>
           </thead>
           <tbody id="records-tbody">
-            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Cargando...</td></tr>
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -2670,7 +2670,7 @@ async function updateDaysRemaining(net){
 let recordsLimit = 8;
 function renderRecordsTable(data, empty){
     const tbody = document.getElementById("records-tbody");
-    if (!data?.length){ tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px">Sin registros disponibles</td></tr>'; return; }
+    if (!data?.length){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px">Sin registros disponibles</td></tr>'; return; }
     const rows = data.slice(0, 3);
     const full = parseFloat(localStorage.getItem("full") || 0);
     tbody.innerHTML = rows.map(r => {
@@ -2682,11 +2682,22 @@ function renderRecordsTable(data, empty){
         const bp   = Math.max(0, Math.min(100, ((v - BAT_MIN) / (BAT_MAX - BAT_MIN)) * 100));
         const badgeCls = pct < 20 ? "danger" : pct < 50 ? "warn" : "ok";
         const badgeTxt = pct < 20 ? "Crítico" : pct < 50 ? "Atención" : "Normal";
+        /* PARCHE [temperatura 2026-09-12]
+           Temperatura del equipo EN EL MOMENTO de esa muestra. Viene de
+           sensor_data.temperature, que el firmware v81.07+ lee al despertar,
+           antes de encender la radio, asi que refleja el entorno de la bascula
+           y no el autocalentamiento del chip.
+           Un equipo con firmware anterior no la envia: la celda queda con un
+           guion en vez de mostrar un cero enganoso. */
+        const tc = (r.temperature != null && isFinite(r.temperature))
+                 ? Number(r.temperature).toFixed(1) + ' °C'
+                 : '—';
         return `<tr>
           <td style="white-space:nowrap;font-size:11px">${fmtDate(r.created_at)}</td>
           <td><strong>${pct.toFixed(1)}%</strong></td>
           <td>${ne.toFixed(2)} kg</td>
           <td style="font-size:11px">${v.toFixed(2)} V · ${bp.toFixed(0)}%</td>
+          <td style="font-size:11px;color:var(--muted)">${tc}</td>
           <td><span class="rec-badge ${badgeCls}">${badgeTxt}</span></td>
         </tr>`;
     }).join('');
@@ -2714,22 +2725,14 @@ function _crearChartPrincipal(isHistory){
         ]},
         options:{
             responsive:true, maintainAspectRatio:false,
-            plugins:{ legend:{ display:false, labels:{ color:'#94a3b8', boxWidth:12, font:{size:11} } },
-                tooltip:{ callbacks:{ label: c => c.dataset.yAxisID === 'y1'
-                    ? 'Temperatura: ' + (c.parsed.y ?? 0).toFixed(1) + ' °C'
-                    : (isHistory ? 'Consumo: ' : 'Peso: ') + (c.parsed.y ?? 0).toFixed(2) + ' kg' }}},
+            plugins:{ legend:{display:false},
+                tooltip:{ callbacks:{ label: c =>
+                    (isHistory ? 'Consumo: ' : 'Peso: ') + (c.parsed.y ?? 0).toFixed(2) + ' kg' }}},
             scales:{
                 y:{ beginAtZero:!!isHistory, position:'left',
                     ticks:{ color:'#94a3b8', callback: v=>v.toFixed(isHistory?2:1)+' kg' },
                     grid:{ color:'rgba(148,163,184,.1)' }},
-                /* PARCHE [temperatura 2026-09-11]: eje derecho independiente.
-                   Se crea siempre pero arranca oculto: solo aparece si el equipo
-                   esta reportando sensor_data.temperature (firmware v81.07+).
-                   Va en su propio eje porque los kg y los grados no comparten
-                   escala; forzarlos al mismo eje aplastaria la curva de peso. */
-                y1:{ display:false, position:'right',
-                     ticks:{ color:'#f59e0b', callback: v=>v.toFixed(0)+' °C' },
-                     grid:{ drawOnChartArea:false }},
+
                 x:{ ticks:{ color:'#94a3b8', maxTicksLimit: isHistory?15:8 }, grid:{ display:false }}
             }
         }
@@ -2846,12 +2849,6 @@ function confirmResetPressed(){
     if (window.chartInstance){
         window.chartInstance.data.labels = [];
         window.chartInstance.data.datasets[0].data = [];
-        // PARCHE [temperatura 2026-09-11]: quitar tambien la serie secundaria.
-        if (window.chartInstance.data.datasets.length > 1){
-            window.chartInstance.data.datasets.length = 1;
-            window.chartInstance.options.scales.y1.display = false;
-            window.chartInstance.options.plugins.legend.display = false;
-        }
         window.chartInstance.update();
     }
     // Guardar calibración con pending_reboot=false inmediatamente.
@@ -3263,32 +3260,12 @@ function refreshChartVirtuals(){
     updateChartColors(false);
     window.chartInstance.data.labels           = chartRows.map(r => fmtShort(r.created_at));
     window.chartInstance.data.datasets[0].data = chartRows.map(r => _netoDe(r, empty));
-    /* PARCHE [temperatura 2026-09-11]
-       sensor_data.temperature es la temperatura del DIE del ESP32-C3, que el
-       firmware v81.07+ lee al despertar, antes de encender nada. No es
-       temperatura ambiente: es la de la estructura donde va montada la celda,
-       que es la variable que hace derivar la medicion.
-       Es un dato de DIAGNOSTICO, no de producto: la serie y su eje solo
-       aparecen si el equipo la esta reportando. Un equipo con firmware anterior
-       ve exactamente el grafico de antes. */
-    const tempSerie = chartRows.map(r => (r && r.temperature != null && !r._virtual)
-                                         ? +Number(r.temperature).toFixed(1) : null);
-    const hayTemp = tempSerie.some(v => v != null);
-    const ds = window.chartInstance.data.datasets;
-    if (hayTemp && !window._chartEsHistorial){
-        if (ds.length < 2){
-            ds.push({ label:'Temperatura (°C)', data:[], yAxisID:'y1',
-                      borderColor:'#f59e0b', borderWidth:1.5, borderDash:[5,4],
-                      tension:.25, pointRadius:0, fill:false, spanGaps:true });
-        }
-        ds[1].data = tempSerie;
-        window.chartInstance.options.scales.y1.display   = true;
-        window.chartInstance.options.plugins.legend.display = true;
-    } else if (ds.length > 1){
-        ds.length = 1;
-        window.chartInstance.options.scales.y1.display   = false;
-        window.chartInstance.options.plugins.legend.display = false;
-    }
+    /* PARCHE [temperatura 2026-09-12] REVERTIDO del grafico.
+       La temperatura se superponia como segunda serie sobre la curva de gas.
+       Se quita: para el cliente son dos lineas que no tienen relacion evidente
+       entre si, y la temperatura del dispositivo no es informacion de producto.
+       Pasa a la tabla de ultimos registros, junto a la muestra que le
+       corresponde, que es donde tiene sentido como dato de diagnostico. */
     updateChartYMax();
     window.chartInstance.update();
 }
@@ -3598,7 +3575,7 @@ async function loadHistory(plan, period){
     const since = new Date(iniMs - 2 * MS_DIA).toISOString();
     try {
         const { data, error } = await db.from("sensor_data")
-            .select("created_at,weight,cycle_id,battery_voltage,battery_percentage,full_weight,empty_weight")
+            .select("created_at,weight,cycle_id,battery_voltage,battery_percentage,full_weight,empty_weight,temperature")
             .eq("device_id", window.currentDeviceId)
             .gte("created_at", since)
             .order("created_at", { ascending: true }).limit(5000);
