@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p9-recambio-tz-y-permisos-rpc-20260912">
+<meta name="lg-build" content="p10-transferencia-con-borrado-20260917">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -495,7 +495,7 @@ header{
     <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
     <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
          el nuevo dueño esté obligado a poner el suyo. Para el final del proceso de fábrica. -->
-    <button class="btn-qr-hdr" onclick="prepararParaCliente()" title="Borra clave y correo para entregar la báscula a su dueño"><i class="fas fa-box-open"></i> Preparar para el cliente</button>
+    <button class="btn-qr-hdr" onclick="transferirBascula()" title="Deja la báscula lista para su nuevo dueño: borra clave, correo e historial"><i class="fas fa-right-left"></i> Transferir mi LevelGas</button>
     <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i> QR</button>
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
@@ -1338,10 +1338,11 @@ function _bloquearPorClaveInvalida(motivo){
     abrirModalIngreso(false);
 }
 /* Reset de clave del MISMO dueño: borra la clave pero CONSERVA el correo de
-   recuperación, porque el titular no cambia. Para entregar la báscula a otra
-   persona hay que usar prepararParaCliente(), que borra ambos. */
+   recuperación y el historial, porque el titular no cambia. Para entregar la
+   báscula a otra persona hay que usar transferirBascula(), que borra las tres
+   cosas. */
 async function resetClaveAcceso(){
-    if (!confirm('¿Resetear la clave de este dashboard?\n\nSe borrará la clave guardada y se pedirá crear una nueva en todos los terminales.\n\nEl correo de recuperación se mantiene. Si vas a entregar la báscula a otra persona, usa "Preparar para el cliente".')) return;
+    if (!confirm('¿Resetear la clave de este dashboard?\n\nSe borrará la clave guardada y se pedirá crear una nueva en todos los terminales.\n\nEl correo de recuperación y el historial se mantienen. Si vas a entregar la báscula a otra persona, usa "Transferir mi LevelGas".')) return;
     const claveActual = _claveLocal();
     // Borrar en Supabase ANTES de tocar el estado local: si el servidor rechaza el
     // reset, el terminal conserva su clave y no queda en un limbo sin acceso.
@@ -1575,21 +1576,42 @@ async function confirmarCodigoRecuperacion(){
     }
 }
 /* ═══════════════════════════════════════════════════════════════════════════
-   PARCHE [seguridad 2026-08-22] · ENTREGA AL CLIENTE (fin del proceso de fábrica)
+   PARCHE [seguridad 2026-08-22] · TRANSFERENCIA A UN NUEVO DUEÑO
+   (renombrado el 2026-09-17: antes "Preparar para el cliente". El nombre viejo
+   solo tenía sentido para el técnico de fábrica, y este botón lo ve sobre todo
+   el dueño, que lo usa cuando vende o regala su LevelGas. Mismo RPC, misma
+   operación; desde el 2026-09-17 tambien borra el historial — ver abajo.)
    En fábrica el técnico abre este dashboard para comprobar que llegan datos, y
    al hacerlo crea una clave y un correo de recuperación: los suyos. Este botón
    borra clave y correo, de modo que el nuevo dueño está obligado a poner los
    suyos en el primer arranque. Exige la clave vigente, así que solo puede
    hacerlo quien acaba de crearla.
+
+   [2026-09-17] Ademas borra el historial de operación, dentro del MISMO RPC y
+   en una sola transacción. Dos razones:
+     1. Fábrica: el técnico deja encima un cilindro de prueba y el banco genera
+        lecturas, ciclos y alertas. Sin esta limpieza el cliente estrena su
+        báscula viendo el consumo del banco, el contador en "ciclo 4" y el aviso
+        de "cilindro nuevo sin registrar" de una prueba que no hizo él.
+     2. Venta entre particulares: el historial de consumo dice a qué hora se
+        cocina y cuándo la casa está vacía. No puede viajar con el equipo.
+   Va dentro del RPC y no como una segunda llamada porque el orden importa: si
+   se borrara la clave primero, la limpieza ya no se podría autorizar.
+   Lo FÍSICO se conserva: tara, factor de calibración, pesos vacío y lleno, MAC
+   y device_id vienen de fábrica y deben sobrevivir a cualquier cambio de dueño.
 ═══════════════════════════════════════════════════════════════════════════ */
-async function prepararParaCliente(){
+async function transferirBascula(){
     if (!device){ alert('Sin MAC en la URL.'); return; }
-    if (!confirm('¿Preparar esta báscula para entregarla al cliente?\n\n'
-               + '· Se borrará la clave de acceso\n'
-               + '· Se borrará el correo de recuperación\n\n'
-               + 'El cliente deberá crear su propia clave y registrar SU correo '
-               + 'la primera vez que abra el dashboard.\n\n'
-               + 'Úsalo solo al terminar el proceso de fábrica.')) return;
+    if (!confirm('¿Transferir esta báscula a otra persona?\n\n'
+               + 'Se borrará de forma definitiva:\n'
+               + '· Tu clave de acceso\n'
+               + '· Tu correo de recuperación\n'
+               + '· Todo el historial: lecturas, cambios de cilindro, consumo y alertas\n\n'
+               + 'SE CONSERVA la calibración de fábrica (tara y pesos), así que la '
+               + 'báscula sigue midiendo igual de bien.\n\n'
+               + 'El nuevo dueño creará su propia clave y registrará SU correo la '
+               + 'primera vez que abra el dashboard.\n\n'
+               + 'Esto no se puede deshacer.')) return;
     try {
         const { data, error } = await db.rpc('handover_to_client', {
             p_device_mac:  device,
@@ -1603,28 +1625,39 @@ async function prepararParaCliente(){
                     + 'handover_to_client para el rol anon. Es un ajuste en Supabase, no en la báscula.');
             } else {
                 console.warn('[handover]', error.message || error, error.code || '');
-                alert('No se pudo preparar la báscula. Inténtalo de nuevo.\n\nDetalle: '
+                alert('No se pudo transferir la báscula. Inténtalo de nuevo.\n\nDetalle: '
                     + (error.message || error) + (error.code ? ' [' + error.code + ']' : ''));
             }
             return;
         }
         if (data === false){
-            alert('No se pudo preparar la báscula: este terminal no tiene la clave vigente.\n\n'
+            alert('No se pudo transferir la báscula: este terminal no tiene la clave vigente.\n\n'
                 + 'Hazlo desde el terminal donde creaste la clave.');
             return;
         }
         _borrarClaveLocal();
+        /* PARCHE [transferencia 2026-09-17]: el terminal del dueño anterior (o el
+           del técnico en fábrica) se quedaba con su propio rastro en localStorage,
+           y al volver a abrir el dashboard reaparecían su correo de contacto y el
+           descarte del aviso de recambio. Se limpia lo que pertenece a la persona,
+           no a la báscula: la tara y la calibración se conservan a propósito. */
+        try {
+            ['lg_recambio_visto','lg_contact_email','lg_contact_phone'].forEach(k => localStorage.removeItem(k));
+        } catch(e){ console.warn('[handover] no se pudo limpiar el estado local', e); }
+        window._recambioChkTs            = 0;
+        window._recambioUltimo           = null;
         window._accessKeyRemote          = null;
         window._accessKeyExistsRemote    = false;
         window._tieneCorreoRecuperacion  = false;
         window._accessGranted            = false;
         window._forceCreateAccessKey     = true;
         _finalizarSesionConsulta();
-        alert('Listo. La báscula quedó sin clave ni correo: el cliente creará los suyos al abrir el dashboard.');
+        alert('Listo. La báscula quedó lista para su nuevo dueño: sin clave, sin correo '
+            + 'y sin historial.\n\nLa calibración de fábrica se mantiene.');
         abrirModalIngreso(false);
     } catch(e){
         console.warn('[handover] error:', e);
-        alert('No se pudo preparar la báscula.');
+        alert('No se pudo transferir la báscula.');
     }
 }
 const CHILE_OFFSET_H = -4;
