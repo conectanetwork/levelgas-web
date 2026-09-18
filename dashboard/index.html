@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p10-transferencia-con-borrado-20260917">
+<meta name="lg-build" content="p12-multibascula-empresa-20260917">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -420,6 +420,8 @@ header{
 /* Botón QR en header */
 .btn-qr-hdr{background:none;border:1.5px solid var(--border);border-radius:8px;color:var(--primary);padding:5px 9px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:5px;font-weight:700;transition:all .2s}
 .btn-qr-hdr:hover{background:var(--primary-dim);border-color:var(--primary)}
+.sel-bascula{background:var(--card,#fff);border:1.5px solid var(--border);border-radius:8px;color:var(--primary);padding:5px 8px;cursor:pointer;font-size:13px;font-weight:700;max-width:180px}
+#bascula-switch{display:none;align-items:center;gap:4px}
 .cyl-counter{display:flex;align-items:center;justify-content:space-between;
   margin-top:10px;padding:10px 14px;border-radius:10px;
   background:var(--primary-dim);border:1px solid rgba(99,102,241,.25)}
@@ -492,6 +494,12 @@ header{
     <div id="bat-low-badge" class="bat-low-badge"><i class="fas fa-exclamation-triangle"></i> Batería baja</div>
     <span id="expiry-warn" class="expiry-pill"></span>
     <span id="plan-badge" style="display:none"></span>
+    <!-- PARCHE [multibascula 2026-09-17]: solo aparece con plan empresa. Ver lgRenderSelector(). -->
+    <div id="bascula-switch">
+      <select id="bascula-select" class="sel-bascula" onchange="lgCambiarBascula(this.value)" title="Cambiar de báscula"></select>
+      <button class="btn-qr-hdr" onclick="lgRenombrarBascula()" title="Ponerle nombre a esta báscula"><i class="fas fa-pen"></i></button>
+      <button class="btn-qr-hdr" onclick="lgAgregarBascula()" title="Agregar otra báscula"><i class="fas fa-plus"></i></button>
+    </div>
     <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
     <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
          el nuevo dueño esté obligado a poner el suyo. Para el final del proceso de fábrica. -->
@@ -1072,6 +1080,73 @@ function _normalizarMac(valor){
 }
 const rawDevice = params.get('device') || localStorage.getItem('device_mac') || '';
 const device    = _normalizarMac(rawDevice);
+/* ═══════════════════════════════════════════════════════════════════════════
+   PARCHE [multibascula 2026-09-17] · ALMACENAMIENTO LOCAL POR BASCULA
+
+   Ocho claves de localStorage vivian sin espacio de nombres, o sea que TODAS
+   las basculas abiertas en el mismo navegador compartian una sola copia:
+
+       access_key · activation_key · empty · full · cal_data
+       lg_recambio_visto · lg_contact_email · lg_contact_phone
+
+   Abrir una segunda bascula pisaba la tara, la calibracion y la clave de la
+   primera. No es un problema del plan empresa ni de una funcion futura: le
+   ocurre a cualquiera que abra dos equipos desde el mismo telefono, y le
+   ocurre en serie al terminal de fabrica, que los abre uno tras otro.
+
+   `empty` y `full` se corrigen solos en el primer sondeo de
+   _chequearEstadoCompartido(), que los relee de `devices`. Las otras seis no
+   tienen esa red: la clave de acceso de un equipo se presentaba al siguiente.
+
+   El espacio de nombres es la MAC (`device`), no `currentDeviceId`: la MAC se
+   conoce al parsear la URL y no cambia en toda la vida de la pagina, mientras
+   que currentDeviceId llega despues de consultar la base. Usar dos claves
+   distintas en dos momentos partiria el espacio de nombres en dos.
+
+   `device_mac` se queda GLOBAL a proposito: significa "la ultima bascula
+   abierta" y es lo que permite entrar sin ?device= en la URL.
+   El de proveedores de gas ya estaba resuelto en gasProvidersKey().
+═══════════════════════════════════════════════════════════════════════════ */
+const LG_CLAVES_POR_BASCULA = ['access_key','activation_key','empty','full',
+                               'cal_data','lg_recambio_visto',
+                               'lg_contact_email','lg_contact_phone'];
+function _lgEspacio(){ return device || 'default'; }
+function lgClave(k){
+    return LG_CLAVES_POR_BASCULA.indexOf(k) >= 0 ? k + '::' + _lgEspacio() : k;
+}
+/* Mismo contrato que localStorage, con la clave ya calificada. Los try/catch
+   son por el mismo motivo que el respaldo en memoria de mas arriba: en Safari
+   iOS con las cookies bloqueadas, estas llamadas lanzan. */
+const LS = {
+    getItem(k){    try { return localStorage.getItem(lgClave(k)); } catch(e){ return null; } },
+    setItem(k,v){  try { localStorage.setItem(lgClave(k), v); } catch(e){} },
+    removeItem(k){ try { localStorage.removeItem(lgClave(k)); } catch(e){} }
+};
+/* Migracion, UNA sola vez en la vida del navegador. Los valores antiguos se
+   atribuyen a la bascula que los genero —la `device_mac` guardada, que todavia
+   no ha sido pisada por la linea de abajo— y no a la que se este abriendo
+   ahora. Sin ese cuidado, llegar por primera vez con el QR de una bascula
+   nueva le copiaria encima la tara y la clave de la anterior.
+   Los valores viejos se retiran para que la migracion no pueda repetirse. */
+(function _lgMigrarAEspacios(){
+    const HECHA = 'lg_ns_migrado_v1';
+    try {
+        if (localStorage.getItem(HECHA)) return;
+        const duena = localStorage.getItem('device_mac') || device || '';
+        if (duena){
+            LG_CLAVES_POR_BASCULA.forEach(function(k){
+                const viejo = localStorage.getItem(k);
+                if (viejo !== null){
+                    if (localStorage.getItem(k + '::' + duena) === null){
+                        localStorage.setItem(k + '::' + duena, viejo);
+                    }
+                    localStorage.removeItem(k);
+                }
+            });
+        }
+        localStorage.setItem(HECHA, '1');
+    } catch(e){ console.warn('[multibascula] no se pudo migrar el almacenamiento', e); }
+})();
 if (device) localStorage.setItem('device_mac', device);
 // flow-return marca el retorno de pago para poder dar un mensaje específico.
 window._vieneDePago = params.get('pago') === 'ok' || params.get('plan_ok') === '1';
@@ -1089,7 +1164,7 @@ if (params.has('key') || params.has('activation_key')) {
         console.warn('[access_key] Clave recibida por URL: ignorada y eliminada de la barra de direcciones.');
     } catch(e){ console.warn('[access_key:url]', e); }
 }
-const accessKey = localStorage.getItem('access_key') || localStorage.getItem('activation_key') || sessionStorage.getItem('access_key') || sessionStorage.getItem('activation_key') || '';
+const accessKey = LS.getItem('access_key') || LS.getItem('activation_key') || sessionStorage.getItem('access_key') || sessionStorage.getItem('activation_key') || '';
 window._accessGranted = false;
 window._dashboardStarted = false;
 window._accessKeyRemote = null;
@@ -1129,8 +1204,8 @@ function _guardarClaveLocal(valor){
     window._accessKeySession = v;
     if (!v) return;
     try {
-        localStorage.setItem('access_key', v);      // persistencia normal PC/Android/iOS compatible
-        localStorage.setItem('activation_key', v);  // compatibilidad con versiones anteriores
+        LS.setItem('access_key', v);      // persistencia normal PC/Android/iOS compatible
+        LS.setItem('activation_key', v);  // compatibilidad con versiones anteriores
     } catch(e){ console.warn('[access_key:localStorage]', e); }
     try {
         sessionStorage.setItem('access_key', v);      // respaldo para smartphones/PWA si localStorage no persiste
@@ -1139,12 +1214,12 @@ function _guardarClaveLocal(valor){
 }
 function _borrarClaveLocal(){
     window._accessKeySession = '';
-    try { localStorage.removeItem('access_key'); localStorage.removeItem('activation_key'); } catch(e){ console.warn('[access_key:clearLocal]', e); }
+    try { LS.removeItem('access_key'); LS.removeItem('activation_key'); } catch(e){ console.warn('[access_key:clearLocal]', e); }
     try { sessionStorage.removeItem('access_key'); sessionStorage.removeItem('activation_key'); } catch(e){ console.warn('[access_key:clearSession]', e); }
 }
 if (accessKey) _guardarClaveLocal(accessKey);
 function _claveLocal(){
-    return ((window._accessKeySession || '') || localStorage.getItem('access_key') || localStorage.getItem('activation_key') || sessionStorage.getItem('access_key') || sessionStorage.getItem('activation_key') || '').trim();
+    return ((window._accessKeySession || '') || LS.getItem('access_key') || LS.getItem('activation_key') || sessionStorage.getItem('access_key') || sessionStorage.getItem('activation_key') || '').trim();
 }
 function _claveGuardada(){
     return ((window._accessKeyRemote || '') || _claveLocal()).trim();
@@ -1642,7 +1717,7 @@ async function transferirBascula(){
            descarte del aviso de recambio. Se limpia lo que pertenece a la persona,
            no a la báscula: la tara y la calibración se conservan a propósito. */
         try {
-            ['lg_recambio_visto','lg_contact_email','lg_contact_phone'].forEach(k => localStorage.removeItem(k));
+            ['lg_recambio_visto','lg_contact_email','lg_contact_phone'].forEach(k => LS.removeItem(k));
         } catch(e){ console.warn('[handover] no se pudo limpiar el estado local', e); }
         window._recambioChkTs            = 0;
         window._recambioUltimo           = null;
@@ -1885,8 +1960,8 @@ function showCfgStep(step){
 }
 function openSettings(){
     showCfgStep(1);
-    const curE = localStorage.getItem('empty') || document.getElementById('empty-weight').value || '';
-    const curF = localStorage.getItem('full')  || document.getElementById('full-weight').value  || '';
+    const curE = LS.getItem('empty') || document.getElementById('empty-weight').value || '';
+    const curF = LS.getItem('full')  || document.getElementById('full-weight').value  || '';
     document.getElementById('empty-weight-adv').value = curE;
     document.getElementById('full-weight-adv').value  = curF;
     document.getElementById('modal-settings').classList.add('open');
@@ -1900,7 +1975,7 @@ function selectCylinder(gasKg, name){
     document.getElementById('cfg-tara-prev').textContent = '? kg';
     document.getElementById('cfg-full-disp').textContent = '? kg';
     document.getElementById('cfg-weight-warn').style.display = 'none';
-    const curE = localStorage.getItem('empty') || document.getElementById('empty-weight').value || '';
+    const curE = LS.getItem('empty') || document.getElementById('empty-weight').value || '';
     document.getElementById('empty-weight-step2').value = curE;
     if (curE) updateBrutoPreview();
     _resetCambioState('step2');
@@ -1954,8 +2029,8 @@ function setCambio(val, context){
     if (saveBtn) saveBtn.disabled = false;
 }
 function showAdvancedConfig(){
-    const curE = localStorage.getItem('empty') || document.getElementById('empty-weight').value || '';
-    const curF = localStorage.getItem('full')  || document.getElementById('full-weight').value  || '';
+    const curE = LS.getItem('empty') || document.getElementById('empty-weight').value || '';
+    const curF = LS.getItem('full')  || document.getElementById('full-weight').value  || '';
     document.getElementById('empty-weight-adv').value = curE;
     document.getElementById('full-weight-adv').value  = curF;
     _resetCambioState('adv');
@@ -1980,8 +2055,8 @@ function saveConfig(){
     const f = +(gasNeto + e).toFixed(2);
     document.getElementById('empty-weight').value = e;
     document.getElementById('full-weight').value  = f;
-    localStorage.setItem('empty', e);
-    localStorage.setItem('full',  f);
+    LS.setItem('empty', e);
+    LS.setItem('full',  f);
     if (window._cambio === true){
         db.from('devices').update({ empty_weight: e }).eq('device_mac', device)
           .then(() => registerCylinderChange());
@@ -2006,8 +2081,8 @@ function saveConfigAdv(){
     }
     document.getElementById('empty-weight').value = e;
     document.getElementById('full-weight').value  = f;
-    localStorage.setItem('empty', e);
-    localStorage.setItem('full',  f);
+    LS.setItem('empty', e);
+    LS.setItem('full',  f);
     if (window._cambio === true){
         db.from('devices').update({ empty_weight: e }).eq('device_mac', device)
           .then(() => registerCylinderChange());
@@ -2038,16 +2113,138 @@ async function saveContact(){
     if (error){ console.error(error); alert("Error al guardar contacto"); return; }
     alert("✅ Contacto guardado.\nEmail: " + em + (ph ? "\nTeléfono: " + ph : "") + "\n\nLas alertas se enviarán automáticamente cuando el gas o la batería bajen del umbral.");
 }
+/* ═══════════════════════════════════════════════════════════════════════════
+   MULTIBASCULA  ·  PARCHE [2026-09-17]
+   ───────────────────────────────────────────────────────────────────────────
+   El registro de basculas conocidas vive en el NAVEGADOR (clave global
+   `lg_basculas`, no calificada por equipo: es precisamente la lista de todos).
+   No viaja entre el PC y el telefono; en cada aparato hay que abrir el QR una
+   vez. La version que si viaja necesita un RPC que liste los equipos por
+   correo compartido, y eso espera al paso 2: hoy `anon` todavia puede hacer
+   SELECT sobre `devices` sin predicado de fila, asi que un listado por correo
+   agregaria superficie de enumeracion a un sistema que aun no tiene RLS por
+   tenencia. Cuando exista, esta misma UI solo cambia de donde saca la lista.
+
+   EL REGISTRO SE LLEVA SIEMPRE, el selector SOLO SE MUESTRA con plan empresa.
+   Son dos cosas distintas a proposito: si solo se registrara con empresa, al
+   contratar el plan la lista apareceria vacia y habria que volver a escanear
+   todo. Registrar es gratis y local; mostrar es lo que se cobra.
+
+   Agregar una bascula por su MAC no da acceso a nada: la MAC es publica (va en
+   la etiqueta y en la URL) y el equipo nuevo pedira su propia clave. Lo unico
+   que hace la lista es evitar volver a escanear el QR.
+═══════════════════════════════════════════════════════════════════════════ */
+const LG_REGISTRO      = 'lg_basculas';
+const LG_MAX_BASCULAS  = 20;
+/* El orden es ALFABETICO, no por uso reciente. Una lista que se reordena sola
+   cada vez que cambias de bascula es imposible de recorrer con la vista, y la
+   que tienes abierta ya viene marcada como `selected` — no necesita estar
+   arriba. `vista` se guarda igual, pero solo sirve para decidir a quien se
+   descarta al llegar al tope. */
+function lgBasculas(){
+    try {
+        const a = JSON.parse(localStorage.getItem(LG_REGISTRO) || '[]');
+        const l = Array.isArray(a) ? a.filter(b => b && b.mac) : [];
+        return l.sort((x, y) => lgNombreBascula(x).localeCompare(lgNombreBascula(y), 'es'));
+    } catch(e){ return []; }
+}
+function lgGuardarBasculas(lista){
+    try {
+        /* Al pasarse del tope se descarta la MENOS usada. Cortar la lista tal
+           cual borraria la ultima del alfabeto, que no tiene nada que ver. */
+        let l = lista.slice();
+        if (l.length > LG_MAX_BASCULAS){
+            l = l.slice().sort((a,b) => (b.vista || 0) - (a.vista || 0)).slice(0, LG_MAX_BASCULAS);
+        }
+        localStorage.setItem(LG_REGISTRO, JSON.stringify(l));
+    }
+    catch(e){ console.warn('[multibascula] no se pudo guardar el registro', e); }
+}
+function lgRegistrarBascula(mac, alias){
+    if (!mac) return;
+    const lista = lgBasculas();
+    const i = lista.findIndex(b => b.mac === mac);
+    const previo = i >= 0 ? lista[i] : null;
+    const entrada = { mac, alias: (alias !== undefined ? alias : (previo ? previo.alias : '')) || '', vista: Date.now() };
+    if (i >= 0) lista[i] = entrada; else lista.push(entrada);
+    lgGuardarBasculas(lista);
+}
+function lgNombreBascula(b){
+    if (b && b.alias) return b.alias;
+    const m = (b && b.mac) || '';
+    return 'LevelGas ' + m.slice(-5).replace(':', '');   // los dos ultimos octetos
+}
+function lgRenderSelector(){
+    const cont = document.getElementById('bascula-switch');
+    const sel  = document.getElementById('bascula-select');
+    if (!cont || !sel) return;
+    if ((window.currentPlan || 'free') !== 'empresa'){ cont.style.display = 'none'; return; }
+    cont.style.display = 'flex';
+    const lista = lgBasculas();
+    // Con una sola bascula el desplegable no aporta, pero el boton "+" si:
+    // es la unica forma de agregar la segunda.
+    sel.style.display = lista.length >= 2 ? '' : 'none';
+    sel.innerHTML = lista.map(b =>
+        '<option value="' + b.mac + '"' + (b.mac === device ? ' selected' : '') + '>'
+        + escapeHtml(lgNombreBascula(b)) + '</option>').join('');
+}
+function lgCambiarBascula(mac){
+    if (!mac || mac === device) return;
+    /* Recarga completa a proposito. La pagina guarda estado de modulo por
+       equipo —_sharedEmpty, _sharedFull, los intervalos de sondeo, el grafico—
+       y reinicializarlo en caliente seria reescribir el arranque entero. Que
+       navegue el navegador es mas corto y no se puede equivocar. */
+    window.location.href = window.location.pathname + '?device=' + encodeURIComponent(mac.replace(/:/g, ''));
+}
+function lgRenombrarBascula(){
+    if (!device){ alert('No hay ninguna báscula abierta.'); return; }
+    const lista  = lgBasculas();
+    const actual = lista.find(b => b.mac === device);
+    const nombre = prompt('¿Cómo quieres llamar a esta báscula?\n\nPor ejemplo: Cocina, Local Centro, Sucursal Norte.',
+                          (actual && actual.alias) || '');
+    if (nombre === null) return;
+    lgRegistrarBascula(device, nombre.trim().slice(0, 28));
+    lgRenderSelector();
+}
+function lgAgregarBascula(){
+    const val = prompt('Escanea el QR de la otra báscula, o escribe aquí su MAC.\n\n'
+                     + 'La MAC viene impresa en la etiqueta, con este aspecto:\n'
+                     + '38:44:BE:8B:A3:00');
+    if (val === null) return;
+    const mac = _normalizarMac(val);
+    if (!mac){
+        alert('Esa MAC no es válida.\n\nSon 12 dígitos hexadecimales, como 38:44:BE:8B:A3:00. '
+            + 'Está impresa en la etiqueta de la báscula, debajo del QR.');
+        return;
+    }
+    if (mac === device){ alert('Esa es la báscula que ya tienes abierta.'); return; }
+    lgRegistrarBascula(mac);
+    lgCambiarBascula(mac);   // pedirá su propia clave al abrirse
+}
 /* ═══════════════════════════════════════════
    PROVEEDORES PARA RECARGA DE GAS
 ═══════════════════════════════════════════ */
+/* PARCHE [multibascula 2026-09-17]: esta clave ya estaba calificada por equipo
+   —fue el patron que se generalizo al resto— pero era INESTABLE dentro de una
+   misma sesion: empezaba con `device` (la MAC, conocida al parsear la URL) y
+   pasaba a `currentDeviceId` (el SG-xxxx) en cuanto respondia la base. Los
+   proveedores guardados antes de esa respuesta quedaban bajo una clave y los de
+   despues bajo otra, asi que desaparecian a mitad de sesion sin motivo visible.
+   Ahora usa el mismo espacio de nombres que el resto: _lgEspacio(), o sea la
+   MAC, que no cambia. Se lee la clave antigua como respaldo para no perder los
+   telefonos ya guardados; en cuanto se guarda algo, migran solas. */
 function gasProvidersKey(){
-    const id = window.currentDeviceId || device || localStorage.getItem('device_mac') || 'default';
+    return 'levelgas_gas_providers_' + _lgEspacio();
+}
+function gasProvidersKeyLegado(){
+    const id = window.currentDeviceId || localStorage.getItem('device_mac') || 'default';
     return 'levelgas_gas_providers_' + id;
 }
 function getGasProviders(){
     try {
-        const list = JSON.parse(localStorage.getItem(gasProvidersKey()) || '[]');
+        let crudo = localStorage.getItem(gasProvidersKey());
+        if (crudo === null) crudo = localStorage.getItem(gasProvidersKeyLegado());
+        const list = JSON.parse(crudo || '[]');
         return Array.isArray(list) ? list.filter(p => p && p.name && p.phone) : [];
     } catch(e){
         console.warn('[gas providers] lectura inválida:', e);
@@ -2159,7 +2356,7 @@ async function registerCylinderChange(){
         if (e1) console.warn('[cylinder] Error registrando evento:', e1.message);
         // El cliente acaba de registrar el cambio: forzar la revalidacion del aviso.
         window._recambioChkTs = 0;
-        localStorage.removeItem("lg_recambio_visto");
+        LS.removeItem("lg_recambio_visto");
         document.getElementById("recambio-box")?.classList.remove("on");
         const { data: dd } = await db.from("devices")
             .select("current_cycle").eq("device_id", window.currentDeviceId).single();
@@ -2181,7 +2378,7 @@ async function registerCylinderChange(){
                 .eq("device_id", window.currentDeviceId);
             alert('⚠️ La báscula aún no ha confirmado el ciclo anterior.\n\nReinicia físicamente la báscula primero y espera que envíe datos.\nLuego podrás registrar el cambio de cilindro.');
         }
-        localStorage.setItem("full", newFullWeight);
+        LS.setItem("full", newFullWeight);
         document.getElementById("full-weight").value = newFullWeight;
         window._pendingCycle = nc;
         document.getElementById('modal-settings').classList.remove('open');
@@ -2292,7 +2489,7 @@ async function checkRecambioNoRegistrado(){
             .eq("device_id", window.currentDeviceId)
             .gte("created_at", desde)
             .order("created_at", { ascending: true }).limit(5000);
-        const tara = parseFloat(localStorage.getItem("empty") || 0);
+        const tara = parseFloat(LS.getItem("empty") || 0);
         const lectV = _serieValida(lect, tara);          // fuera las lecturas fallidas
         if (lectV.length < 2){ box.classList.remove("on"); return; }
         const saltos = [];
@@ -2339,7 +2536,7 @@ async function checkRecambioNoRegistrado(){
            aviso reapareciera con otra fecha. Ahora se guarda el instante y se
            silencia todo lo anterior o igual: solo un cambio genuinamente nuevo
            lo reabre. */
-        const _visto   = localStorage.getItem("lg_recambio_visto");
+        const _visto   = LS.getItem("lg_recambio_visto");
         const _vistoMs = _visto ? _fechaUTC(_visto).getTime() : 0;
         if (_vistoMs && _fechaUTC(ult.t1).getTime() <= _vistoMs){ box.classList.remove("on"); return; }
         window._recambioUltimo = ult.t1;
@@ -2416,8 +2613,8 @@ async function confirmarResetHistorial(){
         /* Solo el estado local derivado del historial. La clave de acceso, la
            tara y el peso lleno se conservan: son configuracion, no historial. */
         try {
-            localStorage.removeItem("cal_data");
-            localStorage.removeItem("lg_recambio_visto");
+            LS.removeItem("cal_data");
+            LS.removeItem("lg_recambio_visto");
         } catch(e){ console.warn("[reset_historial:local]", e); }
         window.historyData = []; window.rawSensorData = [];
         window.currentCycle = 1;
@@ -2449,8 +2646,8 @@ async function verificarCargaRecibida(){
     const msg = document.getElementById("carga-msg");
     if (!box || !msg || !window.currentDeviceId) return;
     const ocultar = () => { box.className = "carga-row"; };
-    const tara    = parseFloat(localStorage.getItem("empty") || 0);
-    const lleno   = parseFloat(localStorage.getItem("full")  || 0);
+    const tara    = parseFloat(LS.getItem("empty") || 0);
+    const lleno   = parseFloat(LS.getItem("full")  || 0);
     const nominal = +(lleno - tara).toFixed(2);
     if (!(tara > 0) || !(nominal > 0)) return ocultar();
     try {
@@ -2495,7 +2692,7 @@ async function verificarCargaRecibida(){
     } catch(e){ console.warn("[carga]", e); ocultar(); }
 }
 function ocultarAvisoRecambio(){
-    if (window._recambioUltimo) localStorage.setItem("lg_recambio_visto", window._recambioUltimo);
+    if (window._recambioUltimo) LS.setItem("lg_recambio_visto", window._recambioUltimo);
     document.getElementById("recambio-box")?.classList.remove("on");
 }
 function checkEarlyAlert(net){
@@ -2631,7 +2828,7 @@ async function updateDailyConsumption(existingData){
                 ? fmtShort(src[0].created_at) + ' → ' + fmtShort(src[src.length-1].created_at)
                 : "Sin lecturas suficientes";
         }
-        const taraSrc = parseFloat(localStorage.getItem("empty") || 0);
+        const taraSrc = parseFloat(LS.getItem("empty") || 0);
         const srcV = _serieValida(src, taraSrc);          // fuera las lecturas fallidas
         if (srcV.length >= 2){
             let c = 0;
@@ -2721,7 +2918,7 @@ async function updateDaysRemaining(net){
             return;
         }
         let consumo = 0;
-        const tara = parseFloat(localStorage.getItem("empty") || 0);
+        const tara = parseFloat(LS.getItem("empty") || 0);
         const dataV = _serieValida(data, tara);           // fuera las lecturas fallidas
         if (dataV.length < 2){ if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Sin lecturas validas"; } return; }
         for (let i = 1; i < dataV.length; i++){
@@ -2761,7 +2958,7 @@ function renderRecordsTable(data, empty){
     const tbody = document.getElementById("records-tbody");
     if (!data?.length){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px">Sin registros disponibles</td></tr>'; return; }
     const rows = data.slice(0, 3);
-    const full = parseFloat(localStorage.getItem("full") || 0);
+    const full = parseFloat(LS.getItem("full") || 0);
     tbody.innerHTML = rows.map(r => {
         const ne  = _netoDe(r, empty) ?? 0;    // neto real medido (puede superar el nominal)
         const br  = _brutoDe(r, empty) ?? 0;
@@ -2836,7 +3033,7 @@ function updateChartYMax(){
     if (!window.chartInstance) return;
     if (window._chartEsHistorial) return;   // la escala fija del cilindro no aplica al consumo
     let yMax = 0;
-    const calRaw = localStorage.getItem('cal_data');
+    const calRaw = LS.getItem('cal_data');
     if (calRaw){
         try {
             const cal = JSON.parse(calRaw);
@@ -2845,8 +3042,8 @@ function updateChartYMax(){
         } catch(e){}
     }
     if (!yMax || yMax <= 0){
-        const fw = parseFloat(localStorage.getItem('full')  || 0);
-        const ew = parseFloat(localStorage.getItem('empty') || 0);
+        const fw = parseFloat(LS.getItem('full')  || 0);
+        const ew = parseFloat(LS.getItem('empty') || 0);
         if (fw > 0 && ew > 0) yMax = +(fw - ew).toFixed(2);
         else if (fw > 0)      yMax = fw;
     }
@@ -2945,7 +3142,7 @@ function confirmResetPressed(){
     const nowIso = new Date().toISOString();
     const calData = { std: +gn, real: null, diff: null,
                       date: nowIso, cylinder_changed_at: nowIso, pending_reboot: false };
-    localStorage.setItem('cal_data', JSON.stringify(calData));
+    LS.setItem('cal_data', JSON.stringify(calData));
     if (window.currentDeviceId){
         db.from('devices').update({ last_calibration: calData })
           .eq('device_id', window.currentDeviceId)
@@ -2962,7 +3159,7 @@ function showCalibrationResult(stdKg){
     const nowIso = new Date().toISOString();
     const calData = { std: +stdKg, real: null, diff: null,
                       date: nowIso, cylinder_changed_at: nowIso, pending_reboot: true };
-    localStorage.setItem('cal_data', JSON.stringify(calData));
+    LS.setItem('cal_data', JSON.stringify(calData));
     if (window.currentDeviceId){
         db.from('devices').update({ last_calibration: calData })
           .eq('device_id', window.currentDeviceId)
@@ -2984,7 +3181,7 @@ function _stopCalPolling(){
 }
 async function _pollForFirstReading(){
     if (!window.currentDeviceId) return;
-    const raw = localStorage.getItem('cal_data');
+    const raw = LS.getItem('cal_data');
     if (!raw) { _stopCalPolling(); return; }
     let calD;
     try { calD = JSON.parse(raw); } catch(e){ _stopCalPolling(); return; }
@@ -2996,7 +3193,7 @@ async function _pollForFirstReading(){
     // Margen de 5 min: acepta lecturas que llegaron justo antes de que se guardara
     // la calibración (el reloj del ESP32 y del dashboard pueden diferir levemente).
     const margenMs = 5 * 60 * 1000;
-    const empty   = parseFloat(localStorage.getItem('empty') || 0);
+    const empty   = parseFloat(LS.getItem('empty') || 0);
     const cycle   = window.currentCycle || 1;
     try {
         const { data } = await db.from('sensor_data').select('weight,created_at,empty_weight')
@@ -3016,7 +3213,7 @@ async function _pollForFirstReading(){
         calD.real           = realNeto;
         calD.diff           = diff;
         calD.pending_reboot = false;
-        localStorage.setItem('cal_data', JSON.stringify(calD));
+        LS.setItem('cal_data', JSON.stringify(calD));
         if (window.currentDeviceId){
             db.from('devices').update({ last_calibration: calD })
               .eq('device_id', window.currentDeviceId)
@@ -3034,7 +3231,7 @@ function _loadCalPanel(){
     if (!window.currentDeviceId) return;
 
     // Mostrar dato local rápido mientras llega Supabase
-    const raw = localStorage.getItem('cal_data');
+    const raw = LS.getItem('cal_data');
     if (raw){
         try {
             const d = JSON.parse(raw);
@@ -3052,13 +3249,13 @@ function _loadCalPanel(){
           // Comparar con lo que hay en localStorage por fecha
           let localDate = 0;
           try {
-              const local = JSON.parse(localStorage.getItem('cal_data') || '{}');
+              const local = JSON.parse(LS.getItem('cal_data') || '{}');
               localDate = local.date ? new Date(local.date).getTime() : 0;
           } catch(e){}
           const remoteDate = remote.date ? new Date(remote.date).getTime() : 0;
           // Supabase manda siempre: sobrescribir si es más reciente o igual
           if (remoteDate >= localDate){
-              localStorage.setItem('cal_data', JSON.stringify(remote));
+              LS.setItem('cal_data', JSON.stringify(remote));
               _renderCalPanel(remote);
               if (remote.pending_reboot) _startCalPolling();
           }
@@ -3151,12 +3348,12 @@ async function _chequearEstadoCompartido(){
         // un cambio posterior que quiza nunca ocurra.
         if (window._sharedEmpty === null && remoteEmpty !== null){
             window._sharedEmpty = remoteEmpty;
-            localStorage.setItem("empty", remoteEmpty);
+            LS.setItem("empty", remoteEmpty);
             const eEl = document.getElementById("empty-weight"); if (eEl) eEl.value = remoteEmpty;
         }
         if (window._sharedFull === null && remoteFull !== null){
             window._sharedFull = remoteFull;
-            localStorage.setItem("full", remoteFull);
+            LS.setItem("full", remoteFull);
             const fEl = document.getElementById("full-weight"); if (fEl) fEl.value = remoteFull;
         }
 
@@ -3168,13 +3365,13 @@ async function _chequearEstadoCompartido(){
             window._sharedCycle = remoteCycle;
             if (remoteEmpty !== null){
                 window._sharedEmpty = remoteEmpty;
-                localStorage.setItem("empty", remoteEmpty);
+                LS.setItem("empty", remoteEmpty);
                 const emptyEl = document.getElementById("empty-weight");
                 if (emptyEl) emptyEl.value = remoteEmpty;
             }
             if (remoteFull !== null){
                 window._sharedFull = remoteFull;
-                localStorage.setItem("full", remoteFull);
+                LS.setItem("full", remoteFull);
                 const fullEl = document.getElementById("full-weight");
                 if (fullEl) fullEl.value = remoteFull;
             }
@@ -3268,8 +3465,8 @@ async function pollLatest(){
     if (!window._authOk || !window.currentDeviceId) return;
     const lrEl  = document.getElementById("last-reading");
     try {
-        const empty    = parseFloat(localStorage.getItem("empty") || document.getElementById("empty-weight").value || "0");
-        const full     = parseFloat(localStorage.getItem("full")  || document.getElementById("full-weight").value  || "0");
+        const empty    = parseFloat(LS.getItem("empty") || document.getElementById("empty-weight").value || "0");
+        const full     = parseFloat(LS.getItem("full")  || document.getElementById("full-weight").value  || "0");
         const { data, error } = await db.from("sensor_data")
             .select("weight, empty_weight, battery_voltage, battery_percentage, created_at, cycle_id")
             .eq("device_id", window.currentDeviceId)
@@ -3396,11 +3593,11 @@ async function updateAll(){
                desde ese navegador. localStorage queda como respaldo para
                cuando no hay respuesta del servidor. */
             if (dd.empty_weight != null && dd.empty_weight !== ""){
-                localStorage.setItem("empty", dd.empty_weight);
+                LS.setItem("empty", dd.empty_weight);
                 document.getElementById("empty-weight").value = dd.empty_weight;
             }
             if (dd.full_weight != null && dd.full_weight !== ""){
-                localStorage.setItem("full", dd.full_weight);
+                LS.setItem("full", dd.full_weight);
                 document.getElementById("full-weight").value = dd.full_weight;
             }
             _loadCalPanel();
@@ -3431,8 +3628,8 @@ async function updateAll(){
         }
         const cycle = window.currentCycle || 1;
         updateCylCounter();
-        const emptyStr = localStorage.getItem("empty") || document.getElementById("empty-weight").value || "0";
-        const fullStr  = localStorage.getItem("full")  || document.getElementById("full-weight").value  || "0";
+        const emptyStr = LS.getItem("empty") || document.getElementById("empty-weight").value || "0";
+        const fullStr  = LS.getItem("full")  || document.getElementById("full-weight").value  || "0";
         const empty = parseFloat(emptyStr);
         const full  = parseFloat(fullStr);
         const supportWindowIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -3669,7 +3866,7 @@ async function loadHistory(plan, period){
             .gte("created_at", since)
             .order("created_at", { ascending: true }).limit(5000);
         if (error) throw error;
-        const empty = parseFloat(localStorage.getItem("empty") || 0);
+        const empty = parseFloat(LS.getItem("empty") || 0);
         // Se limpia la serie ANTES de recortarla al eje: un pico que cae justo en
         // el borde solo se puede reconocer mientras conserve sus dos vecinas.
         const dataV = _serieValida(data || [], empty);
@@ -3939,12 +4136,16 @@ async function getPlan(){
     window.currentCycle    = null;
     // PARCHE [seguridad 2026-08-23]: la clave ya no se descarga nunca.
     // La verificación es server-side, vía el RPC verify_access_key.
-    if (data.empty_weight){ document.getElementById("empty-weight").value=data.empty_weight; localStorage.setItem("empty",data.empty_weight); }
-    if (data.full_weight) { document.getElementById("full-weight").value =data.full_weight;  localStorage.setItem("full", data.full_weight);  }
+    if (data.empty_weight){ document.getElementById("empty-weight").value=data.empty_weight; LS.setItem("empty",data.empty_weight); }
+    if (data.full_weight) { document.getElementById("full-weight").value =data.full_weight;  LS.setItem("full", data.full_weight);  }
     if (data.email){ const em=document.getElementById("empresa-email"); if(em) em.value=data.email; }
     if (data.phone){ const ph=document.getElementById("empresa-phone"); if(ph) ph.value=data.phone; }
     plan = checkPlanExpiry(data.expires_at, plan);
     window.currentPlan = plan;
+    // PARCHE [multibascula 2026-09-17]: se registra SIEMPRE (la lista es local y
+    // gratis); el selector decide solo si se muestra, segun el plan.
+    lgRegistrarBascula(device);
+    lgRenderSelector();
     document.getElementById("plan-badge").innerText = "PLAN " + plan.toUpperCase();
     updatePlansUI(plan);
     _sesionAplicarPlan(plan);   // modo manual: no activa conexión continua
@@ -3975,7 +4176,7 @@ async function exportCSV(){
         return;
     }
 
-    const empty = parseFloat(localStorage.getItem("empty")||0);
+    const empty = parseFloat(LS.getItem("empty")||0);
     const DIAS  = ["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
     let csv  = `"LevelGas PRO - Historial de lecturas"\n`;
     csv     += `"Plan:","${plan.toUpperCase()}"\n"Periodo:","${plan==="hogar"?"30 dias":"6 meses"}"\n`;
@@ -4014,7 +4215,7 @@ async function exportExcel(){
        cilindro es la SUMA de las caidas de peso (inmune a recargas dentro del
        mismo ciclo); y se corrige la fila de totales de la hoja resumen, que
        escribia el total una columna corrida. */
-    const plan=window.currentPlan||"free", empty=parseFloat(localStorage.getItem("empty")||0);
+    const plan=window.currentPlan||"free", empty=parseFloat(LS.getItem("empty")||0);
     /* [04/09/2026] Igual que exportPDF(): si el historial todavia no esta en
        memoria, se carga aqui. Antes solo se alertaba "Sin datos", y de ahi venia
        el sintoma de tener que generar el PDF PRIMERO para que el Excel y el CSV
@@ -4236,8 +4437,8 @@ function selectPlan(plan){
     if (!device){ alert("Dispositivo no encontrado"); return; }
     window._pendingPlan = plan;
     // Pre-rellenar si ya hay datos guardados
-    const savedEmail = localStorage.getItem("lg_contact_email") || "";
-    const savedPhone = localStorage.getItem("lg_contact_phone") || "";
+    const savedEmail = LS.getItem("lg_contact_email") || "";
+    const savedPhone = LS.getItem("lg_contact_phone") || "";
     document.getElementById("contact-email").value = savedEmail;
     document.getElementById("contact-phone").value = savedPhone;
     document.getElementById("contact-error").style.display = "none";
@@ -4259,8 +4460,8 @@ async function confirmContactAndPay(){
     }
     errEl.style.display = "none";
     // Guardar localmente para futuras compras
-    localStorage.setItem("lg_contact_email", email);
-    if (phone) localStorage.setItem("lg_contact_phone", phone);
+    LS.setItem("lg_contact_email", email);
+    if (phone) LS.setItem("lg_contact_phone", phone);
     /* PARCHE [seguridad 2026-09-06]: el UPDATE directo sobre devices.user_email
        permitia apuntar el correo de recuperacion de un equipo AJENO a la casilla
        de quien fuera (la politica RLS es USING(true), sin predicado de fila) y
@@ -4313,7 +4514,7 @@ async function confirmContactAndPay(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
-const sv=localStorage.getItem("empty"), sf=localStorage.getItem("full");
+const sv=LS.getItem("empty"), sf=LS.getItem("full");
 if (sv) document.getElementById("empty-weight").value=sv;
 if (sf) document.getElementById("full-weight").value=sf;
 // Cargar access_key desde Supabase ANTES de mostrar el modal.
