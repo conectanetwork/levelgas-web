@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p12-multibascula-empresa-20260917">
+<meta name="lg-build" content="p13-nombre-de-bascula-visible-20260920">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -262,6 +262,12 @@ header{
 .dp-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
 .dp-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
 .dp-val{font-size:17px;font-weight:700;font-family:monospace;letter-spacing:.5px;margin-bottom:5px;word-break:break-all}
+/* PARCHE [multibascula 2026-09-20]: el nombre de la bascula pasa a ser la linea
+   principal de la tarjeta Dispositivo y la MAC queda debajo, como referencia.
+   Antes lo unico que identificaba al equipo abierto era la MAC, y una MAC no
+   dice cual de tus basculas estas mirando. */
+.dp-nombre{font-size:17px;font-weight:700;letter-spacing:.2px;margin-bottom:2px;word-break:break-word;line-height:1.2}
+.dp-mac-sub{font-size:11px;color:#64748b;font-family:monospace;letter-spacing:.3px;margin-bottom:5px;word-break:break-all}
 .dp-status{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
 .dp-status .dot{width:7px;height:7px;border-radius:50%}
 .btn-replace-cyl{width:100%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;letter-spacing:.2px;transition:all .18s;box-shadow:0 2px 8px rgba(16,185,129,.28)}
@@ -784,7 +790,8 @@ header{
             <div id="dp-plan-pill" class="dp-plan-pill free">FREE</div>
           </div>
         </div>
-        <div class="dp-val" id="dp-mac" title="MAC del dispositivo">——:——:——</div>
+        <div class="dp-nombre" id="dp-nombre" title="Báscula que estás viendo">—</div>
+        <div class="dp-mac-sub" id="dp-mac" title="MAC del dispositivo">——:——:——</div>
         <div id="dp-wifi-row" style="display:none;align-items:center;gap:5px;margin-top:3px;margin-bottom:2px">
           <i class="fas fa-wifi" style="font-size:10px;color:#64748b"></i>
           <span id="dp-wifi-ssid" style="font-size:11px;color:#64748b;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px" title="Red WiFi del dispositivo">—</span>
@@ -2174,6 +2181,16 @@ function lgNombreBascula(b){
     const m = (b && b.mac) || '';
     return 'LevelGas ' + m.slice(-5).replace(':', '');   // los dos ultimos octetos
 }
+/* El NOMBRE se muestra siempre, en cualquier plan: saber que bascula estas
+   mirando no es una funcion de pago, es poder leer la pantalla. Lo que queda
+   detras del plan empresa es el SELECTOR, o sea poder cambiarse a otra. */
+function lgRenderNombreActual(){
+    const el = document.getElementById('dp-nombre');
+    if (!el) return;
+    if (!device){ el.innerText = 'Sin báscula'; return; }
+    const b = lgBasculas().find(x => x.mac === device);
+    el.innerText = lgNombreBascula(b || { mac: device });
+}
 function lgRenderSelector(){
     const cont = document.getElementById('bascula-switch');
     const sel  = document.getElementById('bascula-select');
@@ -2204,6 +2221,7 @@ function lgRenombrarBascula(){
                           (actual && actual.alias) || '');
     if (nombre === null) return;
     lgRegistrarBascula(device, nombre.trim().slice(0, 28));
+    lgRenderNombreActual();
     lgRenderSelector();
 }
 function lgAgregarBascula(){
@@ -4105,6 +4123,11 @@ async function getPlan(){
         document.getElementById("dp-mac").innerText="Sin MAC"; return;
     }
     document.getElementById("dp-mac").innerText = device;
+    /* PARCHE [2026-09-20]: "hd-mac" no existe en el HTML — el elemento se
+       eliminó en algún rediseño del encabezado y quedó este `if` protegiendo una
+       asignación que nunca ocurría. Se deja con la explicación en vez de
+       borrarlo a secas, para que nadie vuelva a agregar el id creyendo que
+       enchufa algo. Quien identifica el equipo hoy es la tarjeta Dispositivo. */
     const hdM = document.getElementById("hd-mac"); if(hdM) hdM.innerText = device;
     /* PARCHE [seguridad 2026-08-23]: columnas explícitas en vez de "*".
        anon ya no tiene SELECT sobre access_key, activation_key, user_email ni
@@ -4145,6 +4168,7 @@ async function getPlan(){
     // PARCHE [multibascula 2026-09-17]: se registra SIEMPRE (la lista es local y
     // gratis); el selector decide solo si se muestra, segun el plan.
     lgRegistrarBascula(device);
+    lgRenderNombreActual();
     lgRenderSelector();
     document.getElementById("plan-badge").innerText = "PLAN " + plan.toUpperCase();
     updatePlansUI(plan);
