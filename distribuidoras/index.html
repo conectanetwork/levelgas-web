@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d2-portal-distribuidoras-20260920">
+<meta name="lg-build" content="d3-filtro-visible-20260920">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Versiones fijadas a proposito. Un "@latest" convierte cada despliegue de un
@@ -128,6 +128,21 @@ header .marca{font-size:16px;margin:0}
 
 /* ── Filtros ──────────────────────────────────────────────────────────────── */
 .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px}
+.aviso-filtro{
+  margin:0 16px 12px;padding:9px 13px;border-radius:10px;font-size:13px;
+  background:var(--acento-suave);border:1.5px solid var(--acento);color:var(--ink);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.aviso-filtro button{margin-left:auto}
+/* `display:flex` de la clase le gana al [hidden] del navegador, que es solo
+   `display:none` de hoja de usuario-agente. Sin esta linea el aviso se queda
+   pegado en pantalla aunque el codigo lo haya ocultado. */
+.aviso-filtro[hidden]{display:none}
+.chip-n{
+  display:inline-block;min-width:19px;padding:0 5px;border-radius:999px;
+  background:var(--sup-2);color:var(--ink-2);font-size:11px;font-weight:800;text-align:center;
+}
+.chip[aria-pressed="true"] .chip-n{background:#fff;color:var(--acento)}
 .chip{
   display:inline-flex;align-items:center;gap:6px;
   border:1.5px solid var(--borde);background:var(--sup);color:var(--ink);
@@ -259,13 +274,17 @@ header .marca{font-size:16px;margin:0}
   <div class="fichas" id="fichas"></div>
 
   <div class="filtros" role="group" aria-label="Filtrar clientes">
-    <button class="chip" data-f="todos"   aria-pressed="true">Todos</button>
-    <button class="chip" data-f="rojo"    aria-pressed="false"><i class="punto p-rojo"></i>Urgentes</button>
-    <button class="chip" data-f="naranjo" aria-pressed="false"><i class="punto p-naranjo"></i>Esta semana</button>
-    <button class="chip" data-f="verde"   aria-pressed="false"><i class="punto p-verde"></i>Sin requerimiento</button>
-    <button class="chip" data-f="gris"    aria-pressed="false"><i class="punto p-gris"></i>Sin dato</button>
+    <button class="chip" data-f="todos"   aria-pressed="true">Todos <span class="chip-n">0</span></button>
+    <button class="chip" data-f="rojo"    aria-pressed="false"><i class="punto p-rojo"></i>Urgentes <span class="chip-n">0</span></button>
+    <button class="chip" data-f="naranjo" aria-pressed="false"><i class="punto p-naranjo"></i>Esta semana <span class="chip-n">0</span></button>
+    <button class="chip" data-f="verde"   aria-pressed="false"><i class="punto p-verde"></i>Sin requerimiento <span class="chip-n">0</span></button>
+    <button class="chip" data-f="gris"    aria-pressed="false"><i class="punto p-gris"></i>Sin dato <span class="chip-n">0</span></button>
     <input id="buscar" type="search" placeholder="Buscar por nombre, dirección o comuna…" aria-label="Buscar">
   </div>
+
+  <!-- PARCHE [d3 2026-09-20]: un filtro que esconde todo tiene que decirlo
+       fuerte. Antes el mapa se vaciaba en silencio y parecia roto. -->
+  <div id="aviso-filtro" class="aviso-filtro" role="status" hidden></div>
 
   <div class="panel">
     <div id="mapa" role="application" aria-label="Mapa de clientes"></div>
@@ -454,6 +473,12 @@ async function cargar(){
         const { data, error } = await db.rpc('distribuidora_panel');
         if (error){ console.warn('[panel]', error); alert('No se pudo cargar el panel: ' + (error.message || '')); return; }
         FILAS = data || [];
+        /* PARCHE [d3 2026-09-20]: el encabezado se llenaba UNA vez, al entrar,
+           desde distribuidora_mi_info(). Al agregar el primer cliente seguia
+           diciendo "0 clientes" mientras la ficha de al lado decia 1. Dos
+           numeros distintos para lo mismo en la misma pantalla es exactamente
+           lo que hace dudar de todo lo demas. Ahora sale del mismo panel. */
+        $('hd-meta').textContent = FILAS.length + ' cliente' + (FILAS.length === 1 ? '' : 's');
         pintarFichas();
         pintar();
     } finally {
@@ -464,7 +489,7 @@ async function cargar(){
 function pintarFichas(){
     const n = (c) => FILAS.filter(f => f.color === c).length;
     $('fichas').innerHTML =
-        ficha(FILAS.length, 'Clientes', '') +
+        ficha(FILAS.length, FILAS.length === 1 ? 'Cliente' : 'Clientes', '') +
         ficha(n('rojo'),    'Urgentes', 'p-rojo') +
         ficha(n('naranjo'), 'Esta semana', 'p-naranjo') +
         ficha(n('gris'),    'Sin dato', 'p-gris');
@@ -509,6 +534,8 @@ function textoEstado(f){
 
 function pintar(){
     const lista = visibles();
+    actualizarChips();
+    actualizarAvisoFiltro(lista.length);
     CAPA.clearLayers(); MARCAS = {};
     const puntos = [];
 
@@ -530,7 +557,7 @@ function pintar(){
     if (puntos.length) MAPA.fitBounds(puntos, { padding: [40, 40], maxZoom: 15 });
 
     $('lista').innerHTML = lista.length ? lista.map(fila).join('')
-        : '<div class="vacio">Ningún cliente coincide con el filtro.</div>';
+        : '<div class="vacio">' + textoVacio() + '</div>';
 
     $('lista').querySelectorAll('.fila').forEach(el => {
         el.addEventListener('click', () => {
@@ -541,6 +568,51 @@ function pintar(){
         });
     });
 }
+
+/* Los contadores van en los propios chips: asi "Urgentes 0" se lee ANTES de
+   pulsarlo, y nadie llega a un mapa vacio preguntandose si se rompio. */
+function actualizarChips(){
+    const q = ($('buscar').value || '').trim().toLowerCase();
+    const coincide = (f) => !q || [f.nombre, f.direccion, f.comuna, f.device_id]
+                                  .some(v => String(v || '').toLowerCase().includes(q));
+    const base = FILAS.filter(coincide);
+    const cuenta = { todos: base.length, rojo:0, naranjo:0, verde:0, gris:0 };
+    base.forEach(f => { if (cuenta[f.color] !== undefined) cuenta[f.color]++; });
+    document.querySelectorAll('.chip').forEach(ch => {
+        const n = ch.querySelector('.chip-n');
+        if (n) n.textContent = cuenta[ch.dataset.f] ?? 0;
+    });
+}
+
+const NOMBRE_FILTRO = { rojo:'Urgentes', naranjo:'Esta semana',
+                        verde:'Sin requerimiento', gris:'Sin dato' };
+
+function actualizarAvisoFiltro(mostrados){
+    const el = $('aviso-filtro');
+    const q  = ($('buscar').value || '').trim();
+    const ocultos = FILAS.length - mostrados;
+    if ((FILTRO === 'todos' && !q) || ocultos <= 0){ el.hidden = true; return; }
+    const partes = [];
+    if (FILTRO !== 'todos') partes.push('«' + NOMBRE_FILTRO[FILTRO] + '»');
+    if (q) partes.push('la búsqueda «' + esc(q) + '»');
+    el.innerHTML = 'Estás viendo solo ' + partes.join(' y ') + ': '
+                 + '<b>' + ocultos + ' cliente' + (ocultos === 1 ? '' : 's')
+                 + ' ' + (ocultos === 1 ? 'oculto' : 'ocultos') + '</b> del mapa y de la lista.'
+                 + '<button class="btn" onclick="verTodos()">Ver todos</button>';
+    el.hidden = false;
+}
+
+function textoVacio(){
+    if (!FILAS.length) return 'Todavía no hay clientes. Usa «+ Cliente» para vincular la primera báscula.';
+    return 'Ningún cliente coincide. Hay ' + FILAS.length + ' en total.';
+}
+
+window.verTodos = function(){
+    FILTRO = 'todos';
+    $('buscar').value = '';
+    document.querySelectorAll('.chip').forEach(o => o.setAttribute('aria-pressed', String(o.dataset.f === 'todos')));
+    pintar();
+};
 
 function fila(f){
     const sinUbic = (f.lat == null)
