@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="lg-build" content="d2-portal-distribuidoras-20260920">
+<title>LevelGas · Empresas Distribuidoras</title>
+
+<!-- Versiones fijadas a proposito. Un "@latest" convierte cada despliegue de un
+     tercero en un despliegue nuestro, sin aviso. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin="anonymous" referrerpolicy="no-referrer">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   PALETA DE ESTADO — validada, no elegida a ojo
+   ───────────────────────────────────────────────────────────────────────────
+   Los cuatro colores pasaron el validador de daltonismo contra las dos
+   superficies (clara #fcfcfb y oscura #1a1a19):
+
+       verde   #0d8f0d      naranjo #f59e0b
+       rojo    #d03b3b      gris    #898781
+
+   El verde NO es el #0ca30c del catalogo. Bajarlo a #0d8f0d sube la separacion
+   verde/naranjo bajo protanopia de ΔE 6,0 a 12,2 — de "apenas legal con apoyo"
+   a holgada. Ocho de cada cien hombres tienen alguna forma de daltonismo
+   rojo-verde, y esto lo va a mirar gente planificando rutas.
+
+   El naranjo queda 2,09:1 contra la superficie clara, bajo el minimo de 3:1.
+   La compensacion obligatoria es que el color NUNCA viaja solo: cada pin lleva
+   los DIAS RESTANTES escritos adentro, y la lista de abajo repite el estado en
+   palabras. Si alguien no distingue los colores, igual lee el numero.
+═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  color-scheme: light;
+  --rojo:#d03b3b; --naranjo:#f59e0b; --verde:#0d8f0d; --gris:#898781;
+  --plano:#f4f4f2; --sup:#fcfcfb; --sup-2:#eeeeec;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+  --borde:#dedcd6; --acento:#1565c0; --acento-suave:#e8f1fb;
+  --sombra:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.05);
+  --alerta-fondo:#fdecec; --alerta-ink:#8c2020; --alerta-borde:#f3c4c4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
+    --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --borde:#33332f; --acento:#5aa0ea; --acento-suave:#17263a;
+    --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
+    --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
+  --borde:#33332f; --acento:#5aa0ea; --acento-suave:#17263a;
+  --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
+  --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--plano); color:var(--ink);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+
+/* ── Acceso ───────────────────────────────────────────────────────────────── */
+#vista-acceso{display:flex;align-items:center;justify-content:center;min-height:100dvh;padding:20px}
+.tarjeta-acceso{
+  background:var(--sup);border:1px solid var(--borde);border-radius:14px;
+  padding:30px 26px;max-width:380px;width:100%;box-shadow:var(--sombra);
+}
+.marca{font-size:20px;font-weight:800;letter-spacing:-.4px;margin:0 0 2px}
+.marca span{color:var(--acento)}
+.sub-acceso{color:var(--ink-2);font-size:13px;margin:0 0 20px}
+.campo{margin-bottom:13px}
+.campo label{display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:5px}
+.campo input{
+  width:100%;padding:10px 12px;border:1.5px solid var(--borde);border-radius:9px;
+  background:var(--sup-2);
+}
+.campo input:focus{outline:2px solid var(--acento);outline-offset:1px;border-color:transparent}
+.btn{
+  border:1px solid var(--borde);background:var(--sup-2);color:var(--ink);
+  border-radius:9px;padding:9px 14px;font-weight:700;font-size:13px;
+}
+.btn:hover{border-color:var(--acento)}
+.btn-primario{background:var(--acento);border-color:var(--acento);color:#fff;width:100%;padding:11px}
+.btn-primario:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.55;cursor:default}
+.aviso{
+  margin-top:14px;padding:10px 12px;border-radius:9px;font-size:13px;
+  background:var(--alerta-fondo);color:var(--alerta-ink);border:1px solid var(--alerta-borde);
+}
+.nota{font-size:12px;color:var(--ink-3);margin-top:16px;line-height:1.5}
+
+/* ── Armazon ──────────────────────────────────────────────────────────────── */
+#vista-app{display:none;flex-direction:column;min-height:100dvh}
+header{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:10px 16px;background:var(--sup);border-bottom:1px solid var(--borde);
+}
+header .marca{font-size:16px;margin:0}
+.dist-nombre{font-weight:700}
+.dist-meta{color:var(--ink-2);font-size:12px}
+.crece{flex:1}
+
+/* ── Fichas de resumen ────────────────────────────────────────────────────── */
+.fichas{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px 0}
+.ficha{
+  background:var(--sup);border:1px solid var(--borde);border-radius:11px;
+  padding:9px 13px;min-width:104px;box-shadow:var(--sombra);
+}
+.ficha-n{font-size:22px;font-weight:800;line-height:1.1;letter-spacing:-.5px}
+.ficha-t{font-size:11px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.4px;
+         display:flex;align-items:center;gap:5px;margin-top:2px}
+.punto{width:9px;height:9px;border-radius:50%;flex:none}
+.p-rojo{background:var(--rojo)} .p-naranjo{background:var(--naranjo)}
+.p-verde{background:var(--verde)} .p-gris{background:var(--gris)}
+
+/* ── Filtros ──────────────────────────────────────────────────────────────── */
+.filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  border:1.5px solid var(--borde);background:var(--sup);color:var(--ink);
+  border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;
+}
+.chip[aria-pressed="true"]{border-color:var(--acento);background:var(--acento-suave)}
+#buscar{
+  flex:1;min-width:180px;max-width:340px;padding:8px 12px;
+  border:1.5px solid var(--borde);border-radius:9px;background:var(--sup);
+}
+
+/* ── Mapa + lista ─────────────────────────────────────────────────────────── */
+.panel{display:grid;grid-template-columns:1fr 400px;gap:12px;padding:0 16px 16px;flex:1;min-height:0}
+@media (max-width:900px){ .panel{grid-template-columns:1fr} }
+#mapa{
+  min-height:420px;border-radius:12px;border:1px solid var(--borde);
+  box-shadow:var(--sombra);background:var(--sup);z-index:0;
+}
+.columna-lista{display:flex;flex-direction:column;min-height:0;gap:8px}
+#lista{
+  background:var(--sup);border:1px solid var(--borde);border-radius:12px;
+  overflow:auto;max-height:70vh;box-shadow:var(--sombra);
+}
+.fila{
+  display:flex;gap:10px;align-items:flex-start;padding:11px 13px;
+  border-bottom:1px solid var(--borde);cursor:pointer;
+}
+.fila:last-child{border-bottom:none}
+.fila:hover{background:var(--sup-2)}
+.fila[aria-selected="true"]{background:var(--acento-suave)}
+.fila-barra{width:4px;align-self:stretch;border-radius:3px;flex:none}
+.fila-cuerpo{flex:1;min-width:0}
+.fila-nom{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fila-dir{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fila-est{font-size:12px;margin-top:3px;display:flex;align-items:center;gap:6px;color:var(--ink-2)}
+.fila-dias{font-weight:800;font-size:15px;text-align:right;min-width:52px;white-space:nowrap}
+.fila-dias small{display:block;font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.3px}
+.vacio{padding:28px 16px;text-align:center;color:var(--ink-2)}
+
+/* ── Pines del mapa ───────────────────────────────────────────────────────── */
+/* El numero adentro es el encoding secundario obligatorio: el color nunca
+   carga el significado solo. El anillo blanco separa el pin de las baldosas
+   del mapa, que son de cualquier color. */
+.pin{
+  width:34px;height:34px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:12px;color:#fff;
+  border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);
+  letter-spacing:-.3px;
+}
+.pin-rojo{background:var(--rojo)} .pin-naranjo{background:var(--naranjo);color:#4a2c00}
+.pin-verde{background:var(--verde)} .pin-gris{background:var(--gris)}
+.pin-sel{outline:3px solid var(--acento);outline-offset:2px}
+.leaflet-popup-content{margin:11px 13px;font:13px/1.45 inherit;min-width:190px}
+.pop-nom{font-weight:800;font-size:14px;margin-bottom:2px}
+.pop-l{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-top:1px solid var(--borde)}
+.pop-l b{font-weight:700}
+.pop-acciones{display:flex;gap:6px;margin-top:9px}
+.pop-acciones .btn{flex:1;padding:6px 8px;font-size:12px}
+
+/* ── Leyenda ──────────────────────────────────────────────────────────────── */
+.leyenda{
+  display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);
+  background:var(--sup);border:1px solid var(--borde);border-radius:10px;padding:8px 12px;
+}
+.leyenda span{display:inline-flex;align-items:center;gap:6px}
+
+/* ── Modal ────────────────────────────────────────────────────────────────── */
+.modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;
+  align-items:center;justify-content:center;padding:16px;z-index:1000;
+}
+.modal.abierto{display:flex}
+.modal-caja{
+  background:var(--sup);border-radius:14px;padding:22px;width:100%;max-width:460px;
+  max-height:88vh;overflow:auto;box-shadow:var(--sombra);border:1px solid var(--borde);
+}
+.modal-caja h3{margin:0 0 4px;font-size:17px}
+.modal-caja .sub-acceso{margin-bottom:16px}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:480px){ .dos{grid-template-columns:1fr} }
+.acciones{display:flex;gap:8px;margin-top:18px}
+.acciones .btn{flex:1;padding:11px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- ═══ ACCESO ═══════════════════════════════════════════════════════════ -->
+<div id="vista-acceso">
+  <form class="tarjeta-acceso" id="form-acceso" autocomplete="on">
+    <h1 class="marca">Level<span>Gas</span></h1>
+    <p class="sub-acceso">Portal de Empresas Distribuidoras</p>
+
+    <div class="campo">
+      <label for="correo">Correo de la distribuidora</label>
+      <input type="email" id="correo" name="username" autocomplete="username" required>
+    </div>
+    <div class="campo">
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" name="current-password" autocomplete="current-password" required>
+    </div>
+
+    <button type="submit" class="btn btn-primario" id="btn-entrar">Entrar</button>
+    <div id="error-acceso" class="aviso" style="display:none"></div>
+
+    <p class="nota">
+      El acceso lo entrega LevelGas al contratar el servicio. Si no recuerdas la
+      contraseña, escribe a soporte: por seguridad no se puede recuperar desde
+      esta pantalla.
+    </p>
+  </form>
+</div>
+
+<!-- ═══ APLICACION ═══════════════════════════════════════════════════════ -->
+<div id="vista-app">
+  <header>
+    <h1 class="marca">Level<span>Gas</span></h1>
+    <div>
+      <div class="dist-nombre" id="hd-dist">—</div>
+      <div class="dist-meta" id="hd-meta"></div>
+    </div>
+    <div class="crece"></div>
+    <button class="btn" id="btn-nuevo">+ Cliente</button>
+    <button class="btn" id="btn-refrescar">Actualizar</button>
+    <button class="btn" id="btn-salir">Salir</button>
+  </header>
+
+  <div class="fichas" id="fichas"></div>
+
+  <div class="filtros" role="group" aria-label="Filtrar clientes">
+    <button class="chip" data-f="todos"   aria-pressed="true">Todos</button>
+    <button class="chip" data-f="rojo"    aria-pressed="false"><i class="punto p-rojo"></i>Urgentes</button>
+    <button class="chip" data-f="naranjo" aria-pressed="false"><i class="punto p-naranjo"></i>Esta semana</button>
+    <button class="chip" data-f="verde"   aria-pressed="false"><i class="punto p-verde"></i>Sin requerimiento</button>
+    <button class="chip" data-f="gris"    aria-pressed="false"><i class="punto p-gris"></i>Sin dato</button>
+    <input id="buscar" type="search" placeholder="Buscar por nombre, dirección o comuna…" aria-label="Buscar">
+  </div>
+
+  <div class="panel">
+    <div id="mapa" role="application" aria-label="Mapa de clientes"></div>
+    <div class="columna-lista">
+      <div class="leyenda" aria-hidden="true">
+        <span><i class="punto p-rojo"></i> Menos de 2 días</span>
+        <span><i class="punto p-naranjo"></i> Menos de 5 días</span>
+        <span><i class="punto p-verde"></i> Sin requerimiento</span>
+        <span><i class="punto p-gris"></i> Sin dato fiable</span>
+      </div>
+      <!-- Esta lista es la "vista de tabla" que el color por si solo no puede
+           reemplazar: repite el estado en palabras y el numero de dias. -->
+      <div id="lista" role="listbox" aria-label="Clientes en orden de ruta"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL CLIENTE ════════════════════════════════════════════════════ -->
+<div class="modal" id="modal-cliente">
+  <form class="modal-caja" id="form-cliente">
+    <h3 id="mc-titulo">Nuevo cliente</h3>
+    <p class="sub-acceso" id="mc-sub">Vincula una báscula instalada a un cliente.</p>
+
+    <div class="campo">
+      <label for="mc-device">Identificador del equipo</label>
+      <input id="mc-device" required placeholder="SG-XXXXXXXX">
+    </div>
+    <div class="campo">
+      <label for="mc-nombre">Nombre del cliente</label>
+      <input id="mc-nombre" required maxlength="80">
+    </div>
+    <div class="campo">
+      <label for="mc-direccion">Dirección</label>
+      <input id="mc-direccion" maxlength="160">
+    </div>
+    <div class="dos">
+      <div class="campo">
+        <label for="mc-comuna">Comuna</label>
+        <input id="mc-comuna" maxlength="60">
+      </div>
+      <div class="campo">
+        <label for="mc-telefono">Teléfono</label>
+        <input id="mc-telefono" maxlength="24">
+      </div>
+    </div>
+    <div class="dos">
+      <div class="campo">
+        <label for="mc-lat">Latitud</label>
+        <input id="mc-lat" type="number" step="0.000001" inputmode="decimal">
+      </div>
+      <div class="campo">
+        <label for="mc-lng">Longitud</label>
+        <input id="mc-lng" type="number" step="0.000001" inputmode="decimal">
+      </div>
+    </div>
+    <button type="button" class="btn" id="btn-geo" style="width:100%">Buscar coordenadas desde la dirección</button>
+    <p class="nota" id="geo-nota">
+      Usa OpenStreetMap. Revisa siempre dónde cayó el pin antes de guardar: una
+      dirección mal escrita aterriza en otra cuadra sin avisar. Después puedes
+      arrastrar el pin en el mapa para corregirlo.
+    </p>
+
+    <div class="campo" style="margin-top:12px">
+      <label for="mc-consent">Acta o contrato de instalación</label>
+      <input id="mc-consent" maxlength="60" placeholder="N° de acta firmada por el cliente">
+    </div>
+    <div class="campo">
+      <label for="mc-notas">Notas</label>
+      <input id="mc-notas" maxlength="200" placeholder="Referencia, portón, horario…">
+    </div>
+
+    <div id="error-cliente" class="aviso" style="display:none"></div>
+    <div class="acciones">
+      <button type="button" class="btn" id="mc-cancelar">Cancelar</button>
+      <button type="submit" class="btn btn-primario" id="mc-guardar">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   PORTAL DE EMPRESAS DISTRIBUIDORAS · d1 · 2026-09-20
+
+   No hay una sola consulta a tablas en este archivo. Todo pasa por seis RPC que
+   resuelven auth.uid() -> distribuidora del lado del servidor:
+
+       distribuidora_mi_info · distribuidora_panel
+       distribuidora_cliente_guardar · distribuidora_cliente_ubicacion
+       distribuidora_registrar_entrega · distribuidora_cliente_desvincular
+
+   Las tablas `distribuidoras`, `distribuidora_usuarios` y
+   `distribuidora_clientes` NO tienen grants para anon ni para authenticated:
+   son inalcanzables desde PostgREST. Aunque alguien copie la clave publicable
+   de abajo —que es publica por diseño— no hay tabla que leer.
+═══════════════════════════════════════════════════════════════════════════ */
+const SUPABASE_URL = "https://uooftjtllmsnugdcldvc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_uh1UiFUzu2mBDUGvBIR5dA_YQ3C5XBW";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s)
+      .replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+
+let MAPA = null, CAPA = null, FILAS = [], MARCAS = {}, FILTRO = 'todos', SEL = null;
+
+/* Santiago. Solo se usa si ningun cliente tiene coordenadas todavia. */
+const CENTRO_POR_DEFECTO = [-33.4489, -70.6693];
+
+/* ── Acceso ───────────────────────────────────────────────────────────────── */
+$('form-acceso').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const btn = $('btn-entrar');
+    btn.disabled = true; btn.textContent = 'Entrando…';
+    mostrarError('error-acceso', '');
+    try {
+        const { error } = await db.auth.signInWithPassword({
+            email: $('correo').value.trim(),
+            password: $('clave').value
+        });
+        if (error){
+            /* Un mensaje unico para credenciales malas: decir "ese correo no
+               existe" le confirma a un desconocido que correos SI existen. */
+            mostrarError('error-acceso',
+                /invalid|credential/i.test(error.message || '')
+                ? 'Correo o contraseña incorrectos.'
+                : 'No se pudo entrar: ' + (error.message || 'error desconocido'));
+            return;
+        }
+        $('clave').value = '';
+        await arrancar();
+    } catch(e){
+        console.warn('[acceso]', e);
+        mostrarError('error-acceso', 'No se pudo contactar con el servidor.');
+    } finally {
+        btn.disabled = false; btn.textContent = 'Entrar';
+    }
+});
+
+$('btn-salir').addEventListener('click', async () => {
+    await db.auth.signOut();
+    location.reload();
+});
+
+function mostrarError(id, msg){
+    const el = $(id);
+    el.textContent = msg || '';
+    el.style.display = msg ? 'block' : 'none';
+}
+
+/* ── Arranque ─────────────────────────────────────────────────────────────── */
+async function arrancar(){
+    const { data: info, error } = await db.rpc('distribuidora_mi_info');
+    if (error || !info || info.ok !== true){
+        /* Sesion valida pero el usuario no esta enlazado a ninguna
+           distribuidora. Es un estado real —alguien creo el usuario y falto el
+           enlace— y merece decirse, no un error generico. */
+        mostrarError('error-acceso',
+            'Tu cuenta existe pero todavía no está asociada a ninguna distribuidora. '
+          + 'Escribe a soporte para que la enlacen.');
+        await db.auth.signOut();
+        return;
+    }
+    $('vista-acceso').style.display = 'none';
+    $('vista-app').style.display    = 'flex';
+    $('hd-dist').textContent = info.nombre || 'Distribuidora';
+    $('hd-meta').textContent = (info.clientes || 0) + ' cliente' + (info.clientes === 1 ? '' : 's');
+    iniciarMapa();
+    await cargar();
+}
+
+function iniciarMapa(){
+    if (MAPA) return;
+    MAPA = L.map('mapa', { zoomControl: true }).setView(CENTRO_POR_DEFECTO, 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(MAPA);
+    CAPA = L.layerGroup().addTo(MAPA);
+}
+
+/* ── Datos ────────────────────────────────────────────────────────────────── */
+async function cargar(){
+    const btn = $('btn-refrescar');
+    btn.disabled = true; btn.textContent = 'Actualizando…';
+    try {
+        const { data, error } = await db.rpc('distribuidora_panel');
+        if (error){ console.warn('[panel]', error); alert('No se pudo cargar el panel: ' + (error.message || '')); return; }
+        FILAS = data || [];
+        pintarFichas();
+        pintar();
+    } finally {
+        btn.disabled = false; btn.textContent = 'Actualizar';
+    }
+}
+
+function pintarFichas(){
+    const n = (c) => FILAS.filter(f => f.color === c).length;
+    $('fichas').innerHTML =
+        ficha(FILAS.length, 'Clientes', '') +
+        ficha(n('rojo'),    'Urgentes', 'p-rojo') +
+        ficha(n('naranjo'), 'Esta semana', 'p-naranjo') +
+        ficha(n('gris'),    'Sin dato', 'p-gris');
+}
+function ficha(n, t, cls){
+    return '<div class="ficha"><div class="ficha-n">' + n + '</div>'
+         + '<div class="ficha-t">' + (cls ? '<i class="punto ' + cls + '"></i>' : '') + esc(t) + '</div></div>';
+}
+
+function visibles(){
+    const q = ($('buscar').value || '').trim().toLowerCase();
+    return FILAS.filter(f => {
+        if (FILTRO !== 'todos' && f.color !== FILTRO) return false;
+        if (!q) return true;
+        return [f.nombre, f.direccion, f.comuna, f.device_id]
+               .some(v => String(v || '').toLowerCase().includes(q));
+    });
+}
+
+/* El numero que va DENTRO del pin. Es lo que sostiene el significado cuando el
+   color no se puede distinguir, asi que nunca puede quedar vacio.
+
+   EN GRIS SIEMPRE VA "?", aunque haya una cifra calculada. Un equipo sin
+   conexion desde hace tres dias conserva su ultima estimacion —digamos once
+   dias— y mostrarla en grande es peor que no mostrar nada: contradice al aviso
+   que tiene al lado y le da al planificador un numero en el que apoyarse que ya
+   no es cierto. La cifra vieja no se tira, se degrada a contexto en el texto. */
+function etiquetaDias(f){
+    if (f.color === 'gris') return '?';
+    if (f.dias_estimados == null) return '?';
+    const d = Number(f.dias_estimados);
+    return d < 10 ? d.toFixed(1) : String(Math.round(d));
+}
+/* El motivo, mas la estimacion caducada como contexto cuando existe. */
+function textoEstado(f){
+    let t = f.motivo || '';
+    if (f.estado === 'sin_conexion' && f.dias_estimados != null){
+        t += ' (el último cálculo daba ' + Number(f.dias_estimados).toFixed(1) + ' días)';
+    }
+    return t;
+}
+
+function pintar(){
+    const lista = visibles();
+    CAPA.clearLayers(); MARCAS = {};
+    const puntos = [];
+
+    lista.forEach(f => {
+        if (f.lat == null || f.lng == null) return;
+        const icono = L.divIcon({
+            className: '',
+            html: '<div class="pin pin-' + f.color + (SEL === f.cliente_id ? ' pin-sel' : '') + '">'
+                + esc(etiquetaDias(f)) + '</div>',
+            iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -17]
+        });
+        const m = L.marker([f.lat, f.lng], { icon: icono, title: f.nombre })
+                   .addTo(CAPA).bindPopup(() => popup(f));
+        m.on('click', () => { SEL = f.cliente_id; pintar(); resaltarFila(f.cliente_id); });
+        MARCAS[f.cliente_id] = m;
+        puntos.push([f.lat, f.lng]);
+    });
+
+    if (puntos.length) MAPA.fitBounds(puntos, { padding: [40, 40], maxZoom: 15 });
+
+    $('lista').innerHTML = lista.length ? lista.map(fila).join('')
+        : '<div class="vacio">Ningún cliente coincide con el filtro.</div>';
+
+    $('lista').querySelectorAll('.fila').forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+            SEL = id; pintar(); resaltarFila(id);
+            const m = MARCAS[id];
+            if (m){ MAPA.setView(m.getLatLng(), Math.max(MAPA.getZoom(), 15)); m.openPopup(); }
+        });
+    });
+}
+
+function fila(f){
+    const sinUbic = (f.lat == null)
+        ? ' · <span style="color:var(--naranjo)">sin ubicación en el mapa</span>' : '';
+    return '<div class="fila" data-id="' + esc(f.cliente_id) + '" role="option"'
+         + (SEL === f.cliente_id ? ' aria-selected="true"' : '') + '>'
+         + '<i class="fila-barra" style="background:var(--' + esc(f.color) + ')"></i>'
+         + '<div class="fila-cuerpo">'
+         +   '<div class="fila-nom">' + esc(f.nombre) + '</div>'
+         +   '<div class="fila-dir">' + esc(f.direccion || 'Sin dirección') + (f.comuna ? ', ' + esc(f.comuna) : '') + '</div>'
+         +   '<div class="fila-est">' + esc(textoEstado(f)) + sinUbic + '</div>'
+         + '</div>'
+         + '<div class="fila-dias" style="color:var(--' + esc(f.color) + ')">'
+         +   esc(etiquetaDias(f)) + '<small>DÍAS</small></div>'
+         + '</div>';
+}
+
+function resaltarFila(id){
+    $('lista').querySelectorAll('.fila').forEach(el => {
+        if (el.dataset.id === id){ el.setAttribute('aria-selected','true'); el.scrollIntoView({block:'nearest'}); }
+        else el.removeAttribute('aria-selected');
+    });
+}
+
+function popup(f){
+    const kg = f.kg_neto == null ? '—' : Number(f.kg_neto).toFixed(1) + ' kg';
+    const bat = f.bateria_pct == null ? '—' : f.bateria_pct + ' %';
+    const con = f.ultima_conexion ? new Date(f.ultima_conexion).toLocaleString('es-CL') : '—';
+    return '<div class="pop-nom">' + esc(f.nombre) + '</div>'
+         + '<div style="color:var(--ink-2);font-size:12px;margin-bottom:6px">'
+         +   esc(f.direccion || 'Sin dirección') + (f.comuna ? ', ' + esc(f.comuna) : '') + '</div>'
+         + linea('Estado', esc(textoEstado(f)))
+         + linea('Gas restante', kg)
+         + linea('Batería', bat)
+         + linea('Última conexión', esc(con))
+         + linea('Equipo', esc(f.device_id))
+         + (f.telefono ? linea('Teléfono', '<a href="tel:' + esc(f.telefono) + '">' + esc(f.telefono) + '</a>') : '')
+         + (f.notas ? '<div style="font-size:12px;color:var(--ink-2);margin-top:6px">' + esc(f.notas) + '</div>' : '')
+         + '<div class="pop-acciones">'
+         +   '<button class="btn" onclick="entregar(\'' + esc(f.device_id) + '\')">Registrar entrega</button>'
+         +   '<button class="btn" onclick="editar(\'' + esc(f.cliente_id) + '\')">Editar</button>'
+         + '</div>';
+}
+function linea(k, v){ return '<div class="pop-l"><span>' + k + '</span><b>' + v + '</b></div>'; }
+
+/* ── Acciones ─────────────────────────────────────────────────────────────── */
+window.entregar = async function(deviceId){
+    const f = FILAS.find(x => x.device_id === deviceId);
+    if (!confirm('¿Registrar la entrega de un cilindro nuevo a ' + (f ? f.nombre : deviceId) + '?\n\n'
+               + 'Esto cierra el cilindro anterior y empieza a contar el nuevo. '
+               + 'Regístralo cada vez que entregues: sin eso, el informe agrupa dos cilindros en uno.')) return;
+    const { data, error } = await db.rpc('distribuidora_registrar_entrega',
+                                         { p_device_id: deviceId, p_notas: null });
+    if (error || !data || data.ok !== true){
+        alert('No se pudo registrar la entrega' + (data && data.msg ? ': ' + data.msg : '.'));
+        return;
+    }
+    await cargar();
+};
+
+window.editar = function(clienteId){
+    const f = FILAS.find(x => x.cliente_id === clienteId);
+    if (!f) return;
+    abrirModal(f);
+};
+
+$('btn-nuevo').addEventListener('click', () => abrirModal(null));
+$('btn-refrescar').addEventListener('click', cargar);
+$('mc-cancelar').addEventListener('click', () => $('modal-cliente').classList.remove('abierto'));
+
+function abrirModal(f){
+    mostrarError('error-cliente','');
+    $('mc-titulo').textContent = f ? 'Editar cliente' : 'Nuevo cliente';
+    $('mc-sub').textContent = f ? 'Los datos del equipo vienen de la báscula.'
+                                : 'Vincula una báscula instalada a un cliente.';
+    $('mc-device').value    = f ? f.device_id : '';
+    $('mc-device').readOnly = !!f;   /* el equipo no se cambia editando */
+    $('mc-nombre').value    = f ? (f.nombre || '') : '';
+    $('mc-direccion').value = f ? (f.direccion || '') : '';
+    $('mc-comuna').value    = f ? (f.comuna || '') : '';
+    $('mc-telefono').value  = f ? (f.telefono || '') : '';
+    $('mc-lat').value       = f && f.lat != null ? f.lat : '';
+    $('mc-lng').value       = f && f.lng != null ? f.lng : '';
+    $('mc-notas').value     = f ? (f.notas || '') : '';
+    $('mc-consent').value   = '';
+    $('modal-cliente').classList.add('abierto');
+}
+
+$('form-cliente').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    mostrarError('error-cliente','');
+    const lat = $('mc-lat').value === '' ? null : parseFloat($('mc-lat').value);
+    const lng = $('mc-lng').value === '' ? null : parseFloat($('mc-lng').value);
+    /* La base exige que las dos vayan juntas o ninguna; se avisa aqui para no
+       gastar un viaje al servidor en decirlo. */
+    if ((lat === null) !== (lng === null)){
+        mostrarError('error-cliente','Latitud y longitud van juntas: o pones las dos, o ninguna.');
+        return;
+    }
+    const btn = $('mc-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+        const { data, error } = await db.rpc('distribuidora_cliente_guardar', {
+            p_device_id: $('mc-device').value.trim(),
+            p_nombre:    $('mc-nombre').value.trim(),
+            p_direccion: $('mc-direccion').value.trim() || null,
+            p_comuna:    $('mc-comuna').value.trim() || null,
+            p_lat: lat, p_lng: lng,
+            p_telefono:  $('mc-telefono').value.trim() || null,
+            p_notas:     $('mc-notas').value.trim() || null,
+            p_consentimiento_ref: $('mc-consent').value.trim() || null
+        });
+        if (error){ mostrarError('error-cliente','No se pudo guardar: ' + (error.message || '')); return; }
+        if (!data || data.ok !== true){
+            mostrarError('error-cliente', explicar(data && data.msg));
+            return;
+        }
+        $('modal-cliente').classList.remove('abierto');
+        await cargar();
+    } finally {
+        btn.disabled = false; btn.textContent = 'Guardar';
+    }
+});
+
+/* Los codigos del RPC en palabras. Un mensaje que nombra la causa ahorra el
+   viaje a soporte; "error desconocido" lo garantiza. */
+function explicar(msg){
+    switch (msg){
+        case 'equipo_no_existe':
+            return 'Ese identificador de equipo no existe. Revísalo en la etiqueta de la báscula (empieza con SG-).';
+        case 'equipo_de_otra_distribuidora':
+            return 'Ese equipo ya está vinculado a otra distribuidora. Debe desvincularlo ella antes.';
+        case 'nombre_requerido':  return 'Falta el nombre del cliente.';
+        case 'sin_distribuidora': return 'Tu cuenta no está asociada a ninguna distribuidora.';
+        case 'coordenadas_invalidas': return 'Esas coordenadas no son válidas.';
+        default: return 'No se pudo guardar' + (msg ? ' (' + msg + ')' : '.');
+    }
+}
+
+/* ── Geocodificacion ──────────────────────────────────────────────────────── */
+/* Nominatim de OpenStreetMap: gratis, sin clave, pero con un limite de UNA
+   consulta por segundo. Por eso esto es un boton que se aprieta una vez y no
+   una busqueda que dispara sola mientras se escribe. Para cargar una cartera
+   entera hay que importar un CSV que ya traiga coordenadas. */
+$('btn-geo').addEventListener('click', async () => {
+    const dir = [$('mc-direccion').value.trim(), $('mc-comuna').value.trim(), 'Chile']
+                .filter(Boolean).join(', ');
+    if (dir.length < 8){ mostrarError('error-cliente','Escribe primero la dirección y la comuna.'); return; }
+    const btn = $('btn-geo');
+    btn.disabled = true; btn.textContent = 'Buscando…';
+    try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cl&q='
+                  + encodeURIComponent(dir);
+        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const j = await r.json();
+        if (!Array.isArray(j) || !j.length){
+            mostrarError('error-cliente','No se encontró esa dirección. Escribe las coordenadas a mano o marca el punto después en el mapa.');
+            return;
+        }
+        $('mc-lat').value = parseFloat(j[0].lat).toFixed(6);
+        $('mc-lng').value = parseFloat(j[0].lon).toFixed(6);
+        $('geo-nota').textContent = 'Encontrado: ' + (j[0].display_name || '') + ' — confírmalo antes de guardar.';
+    } catch(e){
+        console.warn('[geo]', e);
+        mostrarError('error-cliente','No se pudo consultar el buscador de direcciones.');
+    } finally {
+        btn.disabled = false; btn.textContent = 'Buscar coordenadas desde la dirección';
+    }
+});
+
+/* ── Filtros ──────────────────────────────────────────────────────────────── */
+document.querySelectorAll('.chip').forEach(ch => {
+    ch.addEventListener('click', () => {
+        FILTRO = ch.dataset.f;
+        document.querySelectorAll('.chip').forEach(o => o.setAttribute('aria-pressed', String(o === ch)));
+        pintar();
+    });
+});
+$('buscar').addEventListener('input', pintar);
+
+/* ── Sesion ya abierta ────────────────────────────────────────────────────── */
+(async function(){
+    try {
+        const { data } = await db.auth.getSession();
+        if (data && data.session) await arrancar();
+    } catch(e){ console.warn('[sesion]', e); }
+})();
+</script>
+</body>
+</html>
