@@ -3,8 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d3-filtro-visible-20260920">
+<meta name="lg-build" content="d4-marca-y-tema-20260920">
 <title>LevelGas · Empresas Distribuidoras</title>
+
+<!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
+     primer pintado. Puesto abajo con el resto del guion, quien tiene el tema
+     oscuro veria un fogonazo blanco en cada carga. Es la unica razon por la
+     que hay un <script> aqui arriba. -->
+<script>
+(function(){
+  try{
+    var g = localStorage.getItem('lg_tema_distribuidoras');
+    if (g !== 'dark' && g !== 'light'){
+      g = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', g);
+  }catch(e){ /* almacenamiento bloqueado: manda el sistema operativo */ }
+})();
+</script>
 
 <!-- Versiones fijadas a proposito. Un "@latest" convierte cada despliegue de un
      tercero en un despliegue nuestro, sin aviso. -->
@@ -40,7 +56,26 @@
   --rojo:#d03b3b; --naranjo:#f59e0b; --verde:#0d8f0d; --gris:#898781;
   --plano:#f4f4f2; --sup:#fcfcfb; --sup-2:#eeeeec;
   --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
-  --borde:#dedcd6; --acento:#1565c0; --acento-suave:#e8f1fb;
+  --borde:#dedcd6;
+  /* ── COLORES DE MARCA ──────────────────────────────────────────────────
+     Del logotipo: teal #028781 y naranja #FD6B00.
+
+     El acento NO es el teal exacto del logotipo, es un paso mas oscuro.
+     Medido: #028781 contra el gris de "sin dato" (#898781) queda a ΔE 11,6
+     con vision normal — por debajo del piso de 15, o sea confundibles. El
+     paso #016b66 sube a 16,9 y sigue siendo el mismo tono. En oscuro pasa lo
+     mismo al reves: #3fbdb4 da 15,2. El logotipo conserva su color exacto;
+     lo que se corrige es la cromatica de la interfaz, que compite con los
+     colores de estado.
+
+     EL NARANJA DE MARCA NO ENTRA AL PANEL. Medido contra los estados:
+        #FD6B00 vs naranjo de estado #f59e0b  →  ΔE 10,9 con vision NORMAL
+        #FD6B00 vs verde  de estado #0d8f0d   →  ΔE  1,0 con protanopia
+     Un boton naranja al lado de pines de estado destruye el significado del
+     semaforo. Por eso el naranja vive solo en el logotipo y en la pantalla de
+     acceso, donde no hay un solo color de estado en pantalla. */
+  --acento:#016b66; --acento-suave:#e2f1f0;
+  --marca-teal:#028781; --marca-naranja:#FD6B00;
   --sombra:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.05);
   --alerta-fondo:#fdecec; --alerta-ink:#8c2020; --alerta-borde:#f3c4c4;
 }
@@ -49,7 +84,8 @@
     color-scheme: dark;
     --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
     --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
-    --borde:#33332f; --acento:#5aa0ea; --acento-suave:#17263a;
+    --borde:#33332f; --acento:#3fbdb4; --acento-suave:#123330;
+    --marca-teal:#3fbdb4; --marca-naranja:#FD8534;
     --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
     --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
   }
@@ -58,7 +94,8 @@
   color-scheme: dark;
   --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
   --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
-  --borde:#33332f; --acento:#5aa0ea; --acento-suave:#17263a;
+  --borde:#33332f; --acento:#3fbdb4; --acento-suave:#123330;
+  --marca-teal:#3fbdb4; --marca-naranja:#FD8534;
   --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
   --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
 }
@@ -78,8 +115,18 @@ input,select,textarea{font:inherit;color:inherit}
   background:var(--sup);border:1px solid var(--borde);border-radius:14px;
   padding:30px 26px;max-width:380px;width:100%;box-shadow:var(--sombra);
 }
-.marca{font-size:20px;font-weight:800;letter-spacing:-.4px;margin:0 0 2px}
-.marca span{color:var(--acento)}
+.marca{font-size:20px;font-weight:800;letter-spacing:-.4px;margin:0 0 2px;
+       display:flex;align-items:center;gap:7px}
+.marca .lv{color:var(--marca-teal)}
+.marca .gs{color:var(--marca-naranja)}
+.isotipo{height:26px;width:auto;flex:none}
+.logo-acceso{display:block;margin:0 auto 6px;width:230px;max-width:80%;height:auto}
+.btn-tema{
+  border:1px solid var(--borde);background:var(--sup-2);color:var(--ink-2);
+  border-radius:9px;padding:7px 9px;line-height:0;
+}
+.btn-tema:hover{border-color:var(--acento);color:var(--acento)}
+.btn-tema svg{width:17px;height:17px;display:block}
 .sub-acceso{color:var(--ink-2);font-size:13px;margin:0 0 20px}
 .campo{margin-bottom:13px}
 .campo label{display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:5px}
@@ -94,6 +141,9 @@ input,select,textarea{font:inherit;color:inherit}
 }
 .btn:hover{border-color:var(--acento)}
 .btn-primario{background:var(--acento);border-color:var(--acento);color:#fff;width:100%;padding:11px}
+/* Unico lugar donde el naranja de marca es seguro: la pantalla de acceso no
+   muestra ni un pin ni un punto de estado. Ver la nota de los tokens. */
+#vista-acceso .btn-primario{background:var(--marca-naranja);border-color:var(--marca-naranja);color:#fff}
 .btn-primario:hover{filter:brightness(1.08)}
 .btn:disabled{opacity:.55;cursor:default}
 .aviso{
@@ -234,8 +284,10 @@ header .marca{font-size:16px;margin:0}
 <!-- ═══ ACCESO ═══════════════════════════════════════════════════════════ -->
 <div id="vista-acceso">
   <form class="tarjeta-acceso" id="form-acceso" autocomplete="on">
-    <h1 class="marca">Level<span>Gas</span></h1>
-    <p class="sub-acceso">Portal de Empresas Distribuidoras</p>
+    <img class="logo-acceso" src="./assets/logo.png"
+         alt="LevelGas · Telemetría y Logística"
+         onerror="this.replaceWith(Object.assign(document.createElement('h1'),{className:'marca',innerHTML:'<span class=\'lv\'>Level</span><span class=\'gs\'>Gas</span>'}))">
+    <p class="sub-acceso" style="text-align:center">Portal de Empresas Distribuidoras</p>
 
     <div class="campo">
       <label for="correo">Correo de la distribuidora</label>
@@ -260,12 +312,17 @@ header .marca{font-size:16px;margin:0}
 <!-- ═══ APLICACION ═══════════════════════════════════════════════════════ -->
 <div id="vista-app">
   <header>
-    <h1 class="marca">Level<span>Gas</span></h1>
+    <h1 class="marca">
+      <img class="isotipo" src="./assets/isotipo.png" alt=""
+           onerror="this.style.display='none'">
+      <span><span class="lv">Level</span><span class="gs">Gas</span></span>
+    </h1>
     <div>
       <div class="dist-nombre" id="hd-dist">—</div>
       <div class="dist-meta" id="hd-meta"></div>
     </div>
     <div class="crece"></div>
+    <button class="btn-tema" id="btn-tema" title="Cambiar entre día y noche" aria-label="Cambiar entre día y noche"></button>
     <button class="btn" id="btn-nuevo">+ Cliente</button>
     <button class="btn" id="btn-refrescar">Actualizar</button>
     <button class="btn" id="btn-salir">Salir</button>
@@ -385,6 +442,39 @@ const SUPABASE_KEY = "sb_publishable_uh1UiFUzu2mBDUGvBIR5dA_YQ3C5XBW";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const $ = (id) => document.getElementById(id);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIA / NOCHE
+   ───────────────────────────────────────────────────────────────────────────
+   Arranca siguiendo al sistema operativo y solo se fija cuando la persona
+   elige. Esa eleccion SE RECUERDA: el conmutador del dashboard del cliente no
+   la guarda —el <html> trae data-theme="light" a fuego— asi que cada recarga
+   devuelve a claro y hay que volver a apretarlo. Aqui no.
+   El atributo data-theme ya quedo puesto por el guion del <head>; aqui solo
+   se pinta el icono y se enchufa el conmutador.
+═══════════════════════════════════════════════════════════════════════════ */
+const LG_TEMA = 'lg_tema_distribuidoras';
+const SOL  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></svg>';
+const LUNA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.3A8.5 8.5 0 1 1 9.7 3.5a6.8 6.8 0 0 0 10.8 10.8z"/></svg>';
+
+function temaActual(){
+    const guardado = (() => { try { return localStorage.getItem(LG_TEMA); } catch(e){ return null; } })();
+    if (guardado === 'dark' || guardado === 'light') return guardado;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function aplicarTema(t){
+    document.documentElement.setAttribute('data-theme', t);
+    const b = $('btn-tema');
+    /* El icono muestra ADONDE lleva el boton, no donde estas: de noche
+       ofrece el sol. Al reves confunde a la mitad de la gente. */
+    if (b) b.innerHTML = (t === 'dark') ? SOL : LUNA;
+}
+function alternarTema(){
+    const nuevo = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(LG_TEMA, nuevo); } catch(e){}
+    aplicarTema(nuevo);
+}
+aplicarTema(document.documentElement.getAttribute('data-theme') || temaActual());
 const esc = (s) => String(s == null ? '' : s)
       .replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
@@ -423,6 +513,7 @@ $('form-acceso').addEventListener('submit', async (ev) => {
     }
 });
 
+$('btn-tema').addEventListener('click', alternarTema);
 $('btn-salir').addEventListener('click', async () => {
     await db.auth.signOut();
     location.reload();
