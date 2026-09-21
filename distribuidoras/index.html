@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d4-marca-y-tema-20260920">
+<meta name="lg-build" content="d5-csv-y-ruta-20260921">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -246,6 +246,30 @@ header .marca{font-size:16px;margin:0}
 .pin-rojo{background:var(--rojo)} .pin-naranjo{background:var(--naranjo);color:#4a2c00}
 .pin-verde{background:var(--verde)} .pin-gris{background:var(--gris)}
 .pin-sel{outline:3px solid var(--acento);outline-offset:2px}
+.pin{position:relative}
+/* El numero de orden va en una chapa aparte, no reemplaza a los dias: los dias
+   son lo que sostiene el significado cuando el color no se distingue. */
+.pin-orden{
+  position:absolute;top:-9px;left:-9px;min-width:19px;height:19px;padding:0 3px;
+  border-radius:999px;background:var(--acento);color:#fff;border:2px solid #fff;
+  font-size:11px;font-weight:800;line-height:15px;text-align:center;font-style:normal;
+}
+/* La base NO es un circulo. Un circulo de color en este mapa significa estado
+   del cilindro, y la base no es un cliente. */
+.pin-base{
+  width:30px;height:30px;border-radius:7px;background:var(--acento);
+  border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);
+  display:flex;align-items:center;justify-content:center;color:#fff;
+}
+.pin-base svg{width:17px;height:17px}
+.barra-ruta{
+  margin:0 16px 12px;padding:9px 13px;border-radius:10px;font-size:13px;
+  background:var(--acento-suave);border:1.5px solid var(--acento);color:var(--ink);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.barra-ruta[hidden]{display:none}
+.barra-ruta .crece{flex:1}
+.modo-base #mapa{cursor:crosshair}
 .leaflet-popup-content{margin:11px 13px;font:13px/1.45 inherit;min-width:190px}
 .pop-nom{font-weight:800;font-size:14px;margin-bottom:2px}
 .pop-l{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-top:1px solid var(--borde)}
@@ -277,6 +301,16 @@ header .marca{font-size:16px;margin:0}
 .acciones{display:flex;gap:8px;margin-top:18px}
 .acciones .btn{flex:1;padding:11px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* ── Previsualizacion del CSV ─────────────────────────────────────────── */
+.tabla-previo{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}
+.tabla-previo th{
+  text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--borde);
+  color:var(--ink-2);font-size:11px;text-transform:uppercase;letter-spacing:.3px;
+}
+.tabla-previo td{padding:6px 8px;border-bottom:1px solid var(--borde);vertical-align:top}
+.tabla-previo tr.mal td{background:var(--alerta-fondo);color:var(--alerta-ink)}
+.envoltorio-previo{max-height:260px;overflow:auto;border:1px solid var(--borde);border-radius:9px}
+.resumen-previo{font-size:13px;font-weight:700;margin-top:4px}
 </style>
 </head>
 <body>
@@ -324,6 +358,9 @@ header .marca{font-size:16px;margin:0}
     <div class="crece"></div>
     <button class="btn-tema" id="btn-tema" title="Cambiar entre día y noche" aria-label="Cambiar entre día y noche"></button>
     <button class="btn" id="btn-nuevo">+ Cliente</button>
+    <button class="btn" id="btn-importar">Importar CSV</button>
+    <button class="btn" id="btn-base">Base</button>
+    <button class="btn" id="btn-ruta">Planificar ruta</button>
     <button class="btn" id="btn-refrescar">Actualizar</button>
     <button class="btn" id="btn-salir">Salir</button>
   </header>
@@ -342,6 +379,7 @@ header .marca{font-size:16px;margin:0}
   <!-- PARCHE [d3 2026-09-20]: un filtro que esconde todo tiene que decirlo
        fuerte. Antes el mapa se vaciaba en silencio y parecia roto. -->
   <div id="aviso-filtro" class="aviso-filtro" role="status" hidden></div>
+  <div id="barra-ruta" class="barra-ruta" role="status" hidden></div>
 
   <div class="panel">
     <div id="mapa" role="application" aria-label="Mapa de clientes"></div>
@@ -355,6 +393,43 @@ header .marca{font-size:16px;margin:0}
       <!-- Esta lista es la "vista de tabla" que el color por si solo no puede
            reemplazar: repite el estado en palabras y el numero de dias. -->
       <div id="lista" role="listbox" aria-label="Clientes en orden de ruta"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL IMPORTAR ═══════════════════════════════════════════════════ -->
+<div class="modal" id="modal-importar">
+  <div class="modal-caja" style="max-width:720px">
+    <h3>Importar clientes desde CSV</h3>
+    <p class="sub-acceso">
+      El archivo tiene que traer las coordenadas. El buscador de direcciones
+      permite una consulta por segundo, así que no sirve para una cartera
+      completa.
+    </p>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button type="button" class="btn" id="btn-plantilla">Descargar plantilla</button>
+      <label class="btn" style="display:inline-flex;align-items:center">
+        Elegir archivo…
+        <input type="file" id="csv-archivo" accept=".csv,text/csv" hidden>
+      </label>
+    </div>
+
+    <div class="campo">
+      <label for="csv-texto">…o pega aquí el contenido</label>
+      <textarea id="csv-texto" rows="6" spellcheck="false"
+        style="width:100%;padding:10px 12px;border:1.5px solid var(--borde);border-radius:9px;
+               background:var(--sup-2);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px"
+        placeholder="device_id;nombre;direccion;comuna;lat;lng;telefono;notas;consentimiento_ref"></textarea>
+    </div>
+
+    <div id="csv-previo"></div>
+    <div id="error-importar" class="aviso" style="display:none"></div>
+
+    <div class="acciones">
+      <button type="button" class="btn" id="imp-cerrar">Cerrar</button>
+      <button type="button" class="btn" id="imp-revisar">Revisar</button>
+      <button type="button" class="btn btn-primario" id="imp-importar" style="width:auto" disabled>Importar</button>
     </div>
   </div>
 </div>
@@ -479,6 +554,7 @@ const esc = (s) => String(s == null ? '' : s)
       .replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
 let MAPA = null, CAPA = null, FILAS = [], MARCAS = {}, FILTRO = 'todos', SEL = null;
+let INFO = null, CAPA_RUTA = null, RUTA = null, MODO_BASE = false;
 
 /* Santiago. Solo se usa si ningun cliente tiene coordenadas todavia. */
 const CENTRO_POR_DEFECTO = [-33.4489, -70.6693];
@@ -538,6 +614,7 @@ async function arrancar(){
         await db.auth.signOut();
         return;
     }
+    INFO = info;
     $('vista-acceso').style.display = 'none';
     $('vista-app').style.display    = 'flex';
     $('hd-dist').textContent = info.nombre || 'Distribuidora';
@@ -554,6 +631,8 @@ function iniciarMapa(){
         attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(MAPA);
     CAPA = L.layerGroup().addTo(MAPA);
+    CAPA_RUTA = L.layerGroup().addTo(MAPA);
+    MAPA.on('click', (ev) => { if (MODO_BASE) fijarBase(ev.latlng.lat, ev.latlng.lng); });
 }
 
 /* ── Datos ────────────────────────────────────────────────────────────────── */
@@ -590,6 +669,15 @@ function ficha(n, t, cls){
          + '<div class="ficha-t">' + (cls ? '<i class="punto ' + cls + '"></i>' : '') + esc(t) + '</div></div>';
 }
 
+/* Con una ruta activa la lista se reordena para seguirla: la lista ES la hoja
+   de reparto, y una hoja que no va en el orden del recorrido no sirve. */
+function ordenarSegunRuta(lista){
+    if (!RUTA) return lista;
+    const pos = {};
+    RUTA.orden.forEach((id, i) => { pos[id] = i; });
+    return lista.slice().sort((a, b) =>
+        (pos[a.cliente_id] ?? 1e9) - (pos[b.cliente_id] ?? 1e9));
+}
 function visibles(){
     const q = ($('buscar').value || '').trim().toLowerCase();
     return FILAS.filter(f => {
@@ -624,18 +712,28 @@ function textoEstado(f){
 }
 
 function pintar(){
-    const lista = visibles();
+    const lista = ordenarSegunRuta(visibles());
     actualizarChips();
     actualizarAvisoFiltro(lista.length);
+    /* Si un cliente de la ruta dejo de estar visible (cambio de filtro o
+       desvinculado), la ruta que se muestra ya no es la que se calculo. Se
+       descarta en vez de dibujar una linea que miente. */
+    if (RUTA && !RUTA.orden.every(id => lista.some(f => f.cliente_id === id))) { RUTA = null; }
+    pintarBarraRuta();
+    $('btn-ruta').textContent = RUTA ? 'Quitar ruta' : 'Planificar ruta';
     CAPA.clearLayers(); MARCAS = {};
+    const porId = {};
     const puntos = [];
 
     lista.forEach(f => {
+        porId[f.cliente_id] = f;
         if (f.lat == null || f.lng == null) return;
+        const nOrden = ordenDe(f.cliente_id);
         const icono = L.divIcon({
             className: '',
             html: '<div class="pin pin-' + f.color + (SEL === f.cliente_id ? ' pin-sel' : '') + '">'
-                + esc(etiquetaDias(f)) + '</div>',
+                + esc(etiquetaDias(f))
+                + (nOrden ? '<i class="pin-orden">' + nOrden + '</i>' : '') + '</div>',
             iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -17]
         });
         const m = L.marker([f.lat, f.lng], { icon: icono, title: f.nombre })
@@ -645,7 +743,16 @@ function pintar(){
         puntos.push([f.lat, f.lng]);
     });
 
-    if (puntos.length) MAPA.fitBounds(puntos, { padding: [40, 40], maxZoom: 15 });
+    dibujarBaseYRuta(porId);
+    if (hayBase() && (RUTA || !puntos.length)) puntos.push([INFO.base_lat, INFO.base_lng]);
+    /* El tope de zoom solo tiene sentido con UN punto: sin el, el mapa se
+       acercaria hasta la vereda. Con dos o mas hay que dejar que fitBounds haga
+       su trabajo — poniendole tope, un recorrido de 5 km no cabe en pantalla y
+       la mitad de las paradas quedan fuera. Se vio en la prueba de ruta. */
+    if (puntos.length) MAPA.fitBounds(puntos, {
+        padding: [45, 45],
+        maxZoom: puntos.length === 1 ? 15 : 18
+    });
 
     $('lista').innerHTML = lista.length ? lista.map(fila).join('')
         : '<div class="vacio">' + textoVacio() + '</div>';
@@ -708,9 +815,11 @@ window.verTodos = function(){
 function fila(f){
     const sinUbic = (f.lat == null)
         ? ' · <span style="color:var(--naranjo)">sin ubicación en el mapa</span>' : '';
+    const n = ordenDe(f.cliente_id);
     return '<div class="fila" data-id="' + esc(f.cliente_id) + '" role="option"'
          + (SEL === f.cliente_id ? ' aria-selected="true"' : '') + '>'
          + '<i class="fila-barra" style="background:var(--' + esc(f.color) + ')"></i>'
+         + (n ? '<span style="font-weight:800;color:var(--acento);min-width:20px">' + n + '.</span>' : '')
          + '<div class="fila-cuerpo">'
          +   '<div class="fila-nom">' + esc(f.nombre) + '</div>'
          +   '<div class="fila-dir">' + esc(f.direccion || 'Sin dirección') + (f.comuna ? ', ' + esc(f.comuna) : '') + '</div>'
@@ -748,6 +857,136 @@ function popup(f){
          + '</div>';
 }
 function linea(k, v){ return '<div class="pop-l"><span>' + k + '</span><b>' + v + '</b></div>'; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE DE REPARTO Y ORDEN DE RUTA
+   ───────────────────────────────────────────────────────────────────────────
+   La base es el punto desde donde sale el camion. Sin ella no hay orden posible:
+   "el mas cercano" no significa nada hasta decir cercano A QUE.
+
+   El orden es VECINO MAS CERCANO: desde la base se toma el cliente mas proximo,
+   desde ese el siguiente mas proximo entre los que quedan, y asi. No es la ruta
+   optima —eso es el problema del viajante, NP-duro— pero para una jornada de
+   reparto queda entre un 10 % y un 25 % por encima del optimo y se calcula al
+   instante en el navegador, sin servicio externo ni clave de API.
+
+   ⚠ TODAS LAS DISTANCIAS SON EN LINEA RECTA. No son kilometros de manejo: no
+   saben de calles de un sentido, del rio, ni de la Costanera. Se rotula asi en
+   pantalla a proposito. Un total que diga "23 km" a secas se va a leer como
+   distancia de manejo y va a desarmar la planificacion de un dia.
+═══════════════════════════════════════════════════════════════════════════ */
+const CASA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><path d="M9.8 20v-5.4h4.4V20"/></svg>';
+
+/* Haversine. El radio de la Tierra en kilometros. */
+function kmEntre(a, b){
+    const R = 6371, r = Math.PI / 180;
+    const dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+    const h = Math.sin(dLat/2)**2
+            + Math.cos(a[0]*r) * Math.cos(b[0]*r) * Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function hayBase(){ return INFO && INFO.base_lat != null && INFO.base_lng != null; }
+
+$('btn-base').addEventListener('click', () => {
+    if (MODO_BASE){ salirModoBase(); return; }
+    MODO_BASE = true;
+    document.body.classList.add('modo-base');
+    $('btn-base').textContent = 'Cancelar';
+    mostrarBarraRuta('Haz clic en el mapa donde sale el camión. '
+        + (hayBase() ? 'Eso reemplaza la base actual.' : ''), true);
+});
+function salirModoBase(){
+    MODO_BASE = false;
+    document.body.classList.remove('modo-base');
+    $('btn-base').textContent = 'Base';
+    pintarBarraRuta();
+}
+async function fijarBase(lat, lng){
+    const nombre = prompt('Nombre de la base (opcional):', (INFO && INFO.base_nombre) || 'Base de reparto');
+    if (nombre === null){ salirModoBase(); return; }
+    const { data, error } = await db.rpc('distribuidora_base_guardar',
+        { p_lat: lat, p_lng: lng, p_nombre: nombre.trim() || null });
+    if (error || !data || data.ok !== true){
+        alert('No se pudo guardar la base' + (data && data.msg ? ': ' + data.msg : '.'));
+        salirModoBase(); return;
+    }
+    INFO.base_lat = lat; INFO.base_lng = lng; INFO.base_nombre = nombre.trim() || null;
+    salirModoBase();
+    pintar();
+}
+
+$('btn-ruta').addEventListener('click', () => {
+    if (RUTA){ RUTA = null; pintar(); return; }
+    if (!hayBase()){
+        alert('Primero marca la base.\n\nPulsa «Base» y haz clic en el mapa donde sale el camión: '
+            + 'sin ese punto no se puede decir qué cliente queda más cerca.');
+        return;
+    }
+    const conPin = visibles().filter(f => f.lat != null && f.lng != null);
+    if (!conPin.length){ alert('No hay clientes con ubicación entre los que estás viendo.'); return; }
+
+    /* Vecino mas cercano desde la base. */
+    const quedan = conPin.slice();
+    const orden = [];
+    let aqui = [INFO.base_lat, INFO.base_lng];
+    let total = 0;
+    while (quedan.length){
+        let mejor = 0, mejorKm = Infinity;
+        quedan.forEach((f, i) => {
+            const d = kmEntre(aqui, [f.lat, f.lng]);
+            if (d < mejorKm){ mejorKm = d; mejor = i; }
+        });
+        const elegido = quedan.splice(mejor, 1)[0];
+        total += mejorKm;
+        orden.push(elegido.cliente_id);
+        aqui = [elegido.lat, elegido.lng];
+    }
+    const vuelta = kmEntre(aqui, [INFO.base_lat, INFO.base_lng]);
+    RUTA = { orden, km: total, kmVuelta: vuelta, paradas: orden.length };
+    pintar();
+});
+
+function ordenDe(id){
+    if (!RUTA) return null;
+    const i = RUTA.orden.indexOf(id);
+    return i < 0 ? null : i + 1;
+}
+
+function mostrarBarraRuta(html, visible){
+    const el = $('barra-ruta');
+    el.innerHTML = html;
+    el.hidden = !visible;
+}
+function pintarBarraRuta(){
+    if (MODO_BASE) return;
+    if (!RUTA){ $('barra-ruta').hidden = true; return; }
+    mostrarBarraRuta(
+        '<span class="crece"><b>Ruta de ' + RUTA.paradas + ' parada'
+      + (RUTA.paradas === 1 ? '' : 's') + '</b> desde '
+      + esc((INFO && INFO.base_nombre) || 'la base') + ' · '
+      + RUTA.km.toFixed(1) + ' km ida, ' + (RUTA.km + RUTA.kmVuelta).toFixed(1) + ' km con regreso '
+      + '<span style="color:var(--ink-2)">— en línea recta, no es distancia de manejo</span></span>'
+      + '<button class="btn" onclick="RUTA=null;pintar()">Quitar ruta</button>', true);
+}
+
+function dibujarBaseYRuta(porId){
+    CAPA_RUTA.clearLayers();
+    if (!hayBase()) return;
+    L.marker([INFO.base_lat, INFO.base_lng], {
+        icon: L.divIcon({ className:'', html:'<div class="pin-base">' + CASA + '</div>',
+                          iconSize:[30,30], iconAnchor:[15,15], popupAnchor:[0,-15] }),
+        title: (INFO.base_nombre || 'Base de reparto'),
+        zIndexOffset: 500
+    }).addTo(CAPA_RUTA).bindPopup('<div class="pop-nom">' + esc(INFO.base_nombre || 'Base de reparto') + '</div>'
+        + '<div style="font-size:12px;color:var(--ink-2)">Punto de salida del reparto</div>');
+
+    if (!RUTA) return;
+    const linea = [[INFO.base_lat, INFO.base_lng]];
+    RUTA.orden.forEach(id => { const f = porId[id]; if (f) linea.push([f.lat, f.lng]); });
+    linea.push([INFO.base_lat, INFO.base_lng]);
+    L.polyline(linea, { color:'#016b66', weight:3, opacity:.75, dashArray:'7 6' }).addTo(CAPA_RUTA);
+}
 
 /* ── Acciones ─────────────────────────────────────────────────────────────── */
 window.entregar = async function(deviceId){
@@ -842,6 +1081,187 @@ function explicar(msg){
         default: return 'No se pudo guardar' + (msg ? ' (' + msg + ')' : '.');
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPORTACION POR CSV
+   ───────────────────────────────────────────────────────────────────────────
+   Se separa en dos actos a proposito: REVISAR y despues IMPORTAR. Una
+   importacion que escribe sin mostrar antes lo que entendio es una apuesta:
+   el separador equivocado convierte 300 clientes en 300 filas de una sola
+   columna, y eso solo se ve mirando.
+═══════════════════════════════════════════════════════════════════════════ */
+const CSV_COLUMNAS = ['device_id','nombre','direccion','comuna','lat','lng',
+                      'telefono','notas','consentimiento_ref'];
+let CSV_FILAS = null;
+
+/* Excel en español guarda con punto y coma, el resto del mundo con coma, y hay
+   exportadores que usan tabulador. Se detecta contando en la cabecera en vez de
+   exigirle al usuario que sepa cual le toco. */
+function csvSeparador(cabecera){
+    const cand = [';', ',', '\t', '|'];
+    let mejor = ';', max = 0;
+    cand.forEach(c => { const n = cabecera.split(c).length - 1; if (n > max){ max = n; mejor = c; } });
+    return mejor;
+}
+
+/* Analizador propio, chico, que respeta comillas y comillas dobladas ("") —
+   una direccion con coma adentro es lo normal, no la excepcion. */
+function csvAnalizar(texto){
+    const limpio = texto.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
+    if (!limpio) return { error: 'El archivo está vacío.' };
+    const sep = csvSeparador(limpio.split('\n')[0]);
+    const filas = []; let campo = ''; let fila = []; let comillas = false;
+    for (let i = 0; i < limpio.length; i++){
+        const c = limpio[i];
+        if (comillas){
+            if (c === '"' && limpio[i+1] === '"'){ campo += '"'; i++; }
+            else if (c === '"') comillas = false;
+            else campo += c;
+        } else if (c === '"') comillas = true;
+        else if (c === sep){ fila.push(campo); campo = ''; }
+        else if (c === '\n'){ fila.push(campo); filas.push(fila); fila = []; campo = ''; }
+        else campo += c;
+    }
+    fila.push(campo); filas.push(fila);
+
+    const cab = filas.shift().map(x => x.trim().toLowerCase().replace(/\s+/g,'_'));
+    if (!cab.includes('device_id') || !cab.includes('nombre')){
+        return { error: 'Falta la columna «device_id» o «nombre». Descarga la plantilla y usa sus encabezados. '
+                      + 'Se detectó «' + (sep === '\t' ? 'tabulador' : sep) + '» como separador y se leyeron '
+                      + cab.length + ' columnas: ' + cab.join(', ') };
+    }
+    const out = [];
+    filas.forEach(f => {
+        if (f.every(v => !String(v).trim())) return;         // linea en blanco
+        const o = {};
+        cab.forEach((k, i) => { if (CSV_COLUMNAS.includes(k)) o[k] = (f[i] || '').trim(); });
+        out.push(o);
+    });
+    return { sep, filas: out };
+}
+
+/* Chile escribe los decimales con coma. Un "-33,4489" que llegue tal cual al
+   servidor se convierte en null silenciosamente y el cliente queda sin pin. */
+function csvNumero(v){
+    const t = String(v == null ? '' : v).trim().replace(',', '.');
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : NaN;
+}
+
+function csvRevisar(){
+    mostrarError('error-importar','');
+    const r = csvAnalizar($('csv-texto').value);
+    if (r.error){ CSV_FILAS = null; $('csv-previo').innerHTML = ''; $('imp-importar').disabled = true;
+                  mostrarError('error-importar', r.error); return; }
+
+    let buenas = 0;
+    const filas = r.filas.map((f, i) => {
+        const prob = [];
+        if (!f.device_id) prob.push('falta el equipo');
+        if (!f.nombre)    prob.push('falta el nombre');
+        const la = csvNumero(f.lat), lo = csvNumero(f.lng);
+        if (Number.isNaN(la) || Number.isNaN(lo)) prob.push('coordenada no numérica');
+        else if ((la === null) !== (lo === null))  prob.push('falta una de las dos coordenadas');
+        else if (la !== null && (la < -90 || la > 90 || lo < -180 || lo > 180)) prob.push('coordenada fuera de rango');
+        if (!prob.length) buenas++;
+        return { n: i + 1, f, prob, lat: la, lng: lo };
+    });
+
+    if (!filas.length){ $('csv-previo').innerHTML=''; $('imp-importar').disabled = true;
+                        mostrarError('error-importar','No se encontró ninguna fila de datos.'); return; }
+
+    CSV_FILAS = filas;
+    const malas = filas.length - buenas;
+    $('csv-previo').innerHTML =
+        '<div class="resumen-previo">Se leyeron ' + filas.length + ' filas · '
+        + '<span style="color:var(--verde)">' + buenas + ' listas</span>'
+        + (malas ? ' · <span style="color:var(--rojo)">' + malas + ' con problemas</span>' : '')
+        + ' <span style="font-weight:400;color:var(--ink-2)">(separador «'
+        + (r.sep === '\t' ? 'tabulador' : r.sep) + '»)</span></div>'
+        + '<div class="envoltorio-previo"><table class="tabla-previo">'
+        + '<thead><tr><th>#</th><th>Equipo</th><th>Nombre</th><th>Comuna</th><th>Coordenadas</th><th>Revisar</th></tr></thead><tbody>'
+        + filas.map(x =>
+            '<tr class="' + (x.prob.length ? 'mal' : '') + '">'
+          + '<td>' + x.n + '</td>'
+          + '<td>' + esc(x.f.device_id || '—') + '</td>'
+          + '<td>' + esc(x.f.nombre || '—') + '</td>'
+          + '<td>' + esc(x.f.comuna || '—') + '</td>'
+          + '<td>' + (x.lat == null || Number.isNaN(x.lat) ? '—'
+                      : x.lat.toFixed(4) + ', ' + x.lng.toFixed(4)) + '</td>'
+          + '<td>' + (x.prob.length ? esc(x.prob.join('; ')) : '✓') + '</td></tr>').join('')
+        + '</tbody></table></div>'
+        + (malas ? '<p class="nota">Las filas marcadas no se van a importar. El resto sí: '
+                 + 'corrige esas en la planilla y vuelve a subirla.</p>' : '');
+    $('imp-importar').disabled = buenas === 0;
+}
+
+async function csvImportar(){
+    if (!CSV_FILAS) return;
+    const buenas = CSV_FILAS.filter(x => !x.prob.length);
+    if (!buenas.length) return;
+    const btn = $('imp-importar');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    try {
+        const carga = buenas.map(x => ({
+            device_id: x.f.device_id, nombre: x.f.nombre,
+            direccion: x.f.direccion || null, comuna: x.f.comuna || null,
+            lat: x.lat == null ? null : String(x.lat),
+            lng: x.lng == null ? null : String(x.lng),
+            telefono: x.f.telefono || null, notas: x.f.notas || null,
+            consentimiento_ref: x.f.consentimiento_ref || null
+        }));
+        const { data, error } = await db.rpc('distribuidora_clientes_importar', { p_filas: carga });
+        if (error){ mostrarError('error-importar','No se pudo importar: ' + (error.message || '')); return; }
+        if (!data || data.ok !== true){
+            mostrarError('error-importar', data && data.msg === 'demasiadas_filas'
+                ? 'Son demasiadas filas de una vez (' + data.recibidas + '). El máximo es ' + data.limite + '; divide la planilla.'
+                : explicar(data && data.msg));
+            return;
+        }
+        const fallos = (data.detalle || []).filter(d => !d.ok);
+        $('csv-previo').innerHTML =
+            '<div class="resumen-previo">Importadas <span style="color:var(--verde)">' + data.importadas + '</span>'
+          + (data.rechazadas ? ' · rechazadas <span style="color:var(--rojo)">' + data.rechazadas + '</span>' : '') + '</div>'
+          + (fallos.length ? '<div class="envoltorio-previo"><table class="tabla-previo">'
+              + '<thead><tr><th>#</th><th>Equipo</th><th>Motivo</th></tr></thead><tbody>'
+              + fallos.map(d => '<tr class="mal"><td>' + d.fila + '</td><td>' + esc(d.device_id || '—')
+                                + '</td><td>' + esc(explicar(d.msg)) + '</td></tr>').join('')
+              + '</tbody></table></div>' : '');
+        CSV_FILAS = null;
+        await cargar();
+    } finally {
+        btn.textContent = 'Importar';
+    }
+}
+
+function csvPlantilla(){
+    const txt = CSV_COLUMNAS.join(';') + '\n'
+      + 'SG-XXXXXXXX;Panadería San Luis;Av. Matta 1240;Santiago;-33.456900;-70.648300;+56911112222;Portón lateral;ACTA-001\n'
+      + 'SG-YYYYYYYY;Residencia Fuentes;Los Alerces 455;Ñuñoa;-33.456000;-70.598000;;;ACTA-002\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + txt], { type:'text/csv;charset=utf-8' }));
+    a.download = 'plantilla-clientes-levelgas.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+$('btn-importar').addEventListener('click', () => {
+    mostrarError('error-importar','');
+    $('csv-previo').innerHTML = ''; $('imp-importar').disabled = true; CSV_FILAS = null;
+    $('modal-importar').classList.add('abierto');
+});
+$('imp-cerrar').addEventListener('click', () => $('modal-importar').classList.remove('abierto'));
+$('imp-revisar').addEventListener('click', csvRevisar);
+$('imp-importar').addEventListener('click', csvImportar);
+$('btn-plantilla').addEventListener('click', csvPlantilla);
+$('csv-archivo').addEventListener('change', async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    $('csv-texto').value = await f.text();
+    csvRevisar();
+    ev.target.value = '';
+});
 
 /* ── Geocodificacion ──────────────────────────────────────────────────────── */
 /* Nominatim de OpenStreetMap: gratis, sin clave, pero con un limite de UNA
