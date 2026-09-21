@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d5-csv-y-ruta-20260921">
+<meta name="lg-build" content="d6-hoja-de-reparto-20260921">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -311,6 +311,42 @@ header .marca{font-size:16px;margin:0}
 .tabla-previo tr.mal td{background:var(--alerta-fondo);color:var(--alerta-ink)}
 .envoltorio-previo{max-height:260px;overflow:auto;border:1px solid var(--borde);border-radius:9px}
 .resumen-previo{font-size:13px;font-weight:700;margin-top:4px}
+
+/* ── Hoja de reparto ──────────────────────────────────────────────────────
+   En pantalla es una previsualizacion dentro del modal; en papel es lo unico
+   que existe. Se mira antes de imprimir a proposito: una hoja de 40 paradas
+   mal filtrada son cuatro hojas de papel y un viaje perdido. */
+.hoja{background:#fff;color:#111;padding:18px 20px;border-radius:10px;border:1px solid var(--borde)}
+.hoja h2{margin:0 0 2px;font-size:17px;color:#111}
+.hoja .hoja-meta{font-size:12px;color:#444;margin-bottom:12px;line-height:1.5}
+.hoja table{width:100%;border-collapse:collapse;font-size:12px}
+.hoja th{text-align:left;padding:5px 6px;border-bottom:1.5px solid #333;font-size:10.5px;
+         text-transform:uppercase;letter-spacing:.3px;color:#333}
+.hoja td{padding:6px;border-bottom:1px solid #ccc;vertical-align:top;color:#111}
+.hoja .col-n{width:26px;font-weight:800}
+.hoja .col-ok{width:74px}
+.hoja .casilla{display:inline-block;width:13px;height:13px;border:1.5px solid #333;border-radius:3px;
+               vertical-align:-2px;margin-right:5px}
+.hoja .dias{font-weight:800;white-space:nowrap}
+.hoja .firma{border-bottom:1px solid #999;display:inline-block;min-width:62px}
+.hoja-envoltorio{max-height:56vh;overflow:auto}
+.hoja-pie{font-size:11px;color:#555;margin-top:12px;line-height:1.5}
+
+@media print{
+  /* Se oculta TODO y se deja solo la hoja. Sin esto sale el mapa, los filtros y
+     el fondo oscuro, y la impresora gasta un cartucho en el chrome. */
+  body > *{display:none !important}
+  #modal-hoja{display:block !important;position:static !important;background:none !important;
+              padding:0 !important;inset:auto !important}
+  #modal-hoja .modal-caja{max-width:none !important;max-height:none !important;overflow:visible !important;
+              box-shadow:none !important;border:none !important;padding:0 !important;background:#fff !important}
+  #modal-hoja .acciones, #modal-hoja > .modal-caja > h3, #modal-hoja .sub-acceso{display:none !important}
+  .hoja{border:none;padding:0}
+  .hoja-envoltorio{max-height:none;overflow:visible}
+  .hoja tr{break-inside:avoid}
+  .hoja thead{display:table-header-group}
+  @page{margin:14mm 12mm}
+}
 </style>
 </head>
 <body>
@@ -361,6 +397,7 @@ header .marca{font-size:16px;margin:0}
     <button class="btn" id="btn-importar">Importar CSV</button>
     <button class="btn" id="btn-base">Base</button>
     <button class="btn" id="btn-ruta">Planificar ruta</button>
+    <button class="btn" id="btn-hoja">Hoja de reparto</button>
     <button class="btn" id="btn-refrescar">Actualizar</button>
     <button class="btn" id="btn-salir">Salir</button>
   </header>
@@ -393,6 +430,20 @@ header .marca{font-size:16px;margin:0}
       <!-- Esta lista es la "vista de tabla" que el color por si solo no puede
            reemplazar: repite el estado en palabras y el numero de dias. -->
       <div id="lista" role="listbox" aria-label="Clientes en orden de ruta"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL HOJA DE REPARTO ════════════════════════════════════════════ -->
+<div class="modal" id="modal-hoja">
+  <div class="modal-caja" style="max-width:860px">
+    <h3>Hoja de reparto</h3>
+    <p class="sub-acceso">Revísala antes de imprimir: sale tal cual se ve aquí.</p>
+    <div id="hoja-contenido"></div>
+    <div class="acciones">
+      <button type="button" class="btn" id="hoja-cerrar">Cerrar</button>
+      <button type="button" class="btn" id="hoja-csv">Descargar CSV</button>
+      <button type="button" class="btn btn-primario" id="hoja-imprimir" style="width:auto">Imprimir</button>
     </div>
   </div>
 </div>
@@ -1081,6 +1132,118 @@ function explicar(msg){
         default: return 'No se pudo guardar' + (msg ? ' (' + msg + ')' : '.');
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HOJA DE REPARTO
+   ───────────────────────────────────────────────────────────────────────────
+   Lo que el conductor se lleva. En papel o en el telefono, pero fuera de esta
+   pantalla: en la calle no hay mapa interactivo ni sesion iniciada.
+
+   Toma exactamente lo que se esta viendo — mismo filtro, mismo orden. Si hay
+   ruta calculada sale en orden de ruta; si no, en orden de urgencia. Que la
+   hoja pueda diferir de la pantalla seria la peor clase de error: nadie la
+   volveria a revisar.
+
+   Lleva casilla de verificacion y linea para la hora porque se usa con un lapiz
+   sobre el tablero de una camioneta.
+═══════════════════════════════════════════════════════════════════════════ */
+function hojaFilas(){
+    return ordenarSegunRuta(visibles());
+}
+
+function hojaFecha(){
+    return new Date().toLocaleString('es-CL', { dateStyle:'full', timeStyle:'short' });
+}
+
+function hojaEstadoTexto(f){
+    if (f.color === 'gris')    return 'Revisar';
+    if (f.color === 'rojo')    return 'URGENTE';
+    if (f.color === 'naranjo') return 'Esta semana';
+    return 'Al día';
+}
+
+function hojaConstruir(){
+    const filas = hojaFilas();
+    const conRuta = !!RUTA;
+    const cab = '<h2>Hoja de reparto · ' + esc((INFO && INFO.nombre) || 'LevelGas') + '</h2>'
+      + '<div class="hoja-meta">' + esc(hojaFecha())
+      + ' · <b>' + filas.length + ' parada' + (filas.length === 1 ? '' : 's') + '</b>'
+      + (FILTRO !== 'todos' ? ' · filtro: ' + esc(NOMBRE_FILTRO[FILTRO]) : '')
+      + (conRuta
+          ? '<br>Orden de ruta desde ' + esc((INFO && INFO.base_nombre) || 'la base')
+            + ' · ' + RUTA.km.toFixed(1) + ' km ida, '
+            + (RUTA.km + RUTA.kmVuelta).toFixed(1) + ' km con regreso '
+            + '— <b>en línea recta, no es distancia de manejo</b>'
+          : '<br>Orden por urgencia. Para ordenar por cercanía, marca la base y pulsa «Planificar ruta».')
+      + '</div>';
+
+    if (!filas.length){
+        return cab + '<p>No hay ninguna parada con el filtro puesto.</p>';
+    }
+
+    const cuerpo = filas.map((f, i) => {
+        const dias = f.color === 'gris' ? '—'
+                   : (f.dias_estimados == null ? '—' : Number(f.dias_estimados).toFixed(1) + ' d');
+        const kg = f.kg_neto == null ? '—' : Number(f.kg_neto).toFixed(1) + ' kg';
+        return '<tr>'
+          + '<td class="col-n">' + (conRuta ? (i + 1) : '') + '</td>'
+          + '<td><b>' + esc(f.nombre) + '</b>'
+          + (f.telefono ? '<br>' + esc(f.telefono) : '') + '</td>'
+          + '<td>' + esc(f.direccion || '—') + (f.comuna ? '<br>' + esc(f.comuna) : '')
+          + (f.notas ? '<br><i>' + esc(f.notas) + '</i>' : '') + '</td>'
+          + '<td class="dias">' + dias + '<br>' + esc(hojaEstadoTexto(f)) + '</td>'
+          + '<td>' + kg + '</td>'
+          + '<td class="col-ok"><span class="casilla"></span><br>'
+          + '<span style="font-size:10px">hora <span class="firma">&nbsp;</span></span></td>'
+          + '</tr>';
+    }).join('');
+
+    return cab
+      + '<div class="hoja-envoltorio"><table>'
+      + '<thead><tr><th>#</th><th>Cliente</th><th>Dirección</th><th>Restante</th>'
+      + '<th>Gas</th><th>Entregado</th></tr></thead><tbody>'
+      + cuerpo + '</tbody></table></div>'
+      + '<div class="hoja-pie">'
+      + 'Los días restantes son una estimación a partir del consumo promedio. '
+      + '«Revisar» significa que el equipo no reportó o todavía no tiene historial: '
+      + 'confirmar el cilindro en terreno.'
+      + (conRuta ? '<br>Las distancias son en línea recta. El recorrido real por calle es mayor.' : '')
+      + '</div>';
+}
+
+function hojaCSV(){
+    const filas = hojaFilas();
+    const conRuta = !!RUTA;
+    const cab = ['orden','cliente','telefono','direccion','comuna','dias_restantes',
+                 'estado','gas_kg','equipo','notas'];
+    const esc2 = (v) => {
+        const t = String(v == null ? '' : v);
+        return /[";\n]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+    };
+    const cuerpo = filas.map((f, i) => [
+        conRuta ? (i + 1) : '',
+        f.nombre, f.telefono || '', f.direccion || '', f.comuna || '',
+        f.color === 'gris' || f.dias_estimados == null ? '' : Number(f.dias_estimados).toFixed(1),
+        hojaEstadoTexto(f),
+        f.kg_neto == null ? '' : Number(f.kg_neto).toFixed(1),
+        f.device_id, f.notas || ''
+    ].map(esc2).join(';')).join('\n');
+
+    const txt = cab.join(';') + '\n' + cuerpo + '\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + txt], { type:'text/csv;charset=utf-8' }));
+    a.download = 'hoja-reparto-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+$('btn-hoja').addEventListener('click', () => {
+    $('hoja-contenido').innerHTML = '<div class="hoja">' + hojaConstruir() + '</div>';
+    $('modal-hoja').classList.add('abierto');
+});
+$('hoja-cerrar').addEventListener('click', () => $('modal-hoja').classList.remove('abierto'));
+$('hoja-imprimir').addEventListener('click', () => window.print());
+$('hoja-csv').addEventListener('click', hojaCSV);
 
 /* ═══════════════════════════════════════════════════════════════════════════
    IMPORTACION POR CSV
