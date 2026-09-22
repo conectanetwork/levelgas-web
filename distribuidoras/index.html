@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d8-trazado-por-calles-20260922">
+<meta name="lg-build" content="d9-color-base-id-20260922">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -38,22 +38,57 @@
    Los cuatro colores pasaron el validador de daltonismo contra las dos
    superficies (clara #fcfcfb y oscura #1a1a19):
 
-       verde   #0d8f0d      naranjo #f59e0b
-       rojo    #d03b3b      gris    #898781
+       celeste #1a7fd0 claro / #2f86dd oscuro     naranjo #f59e0b
+       rojo    #d03b3b                            gris    #a8a6a0 claro / #898781 oscuro
 
-   El verde NO es el #0ca30c del catalogo. Bajarlo a #0d8f0d sube la separacion
-   verde/naranjo bajo protanopia de ΔE 6,0 a 12,2 — de "apenas legal con apoyo"
-   a holgada. Ocho de cada cien hombres tienen alguna forma de daltonismo
-   rojo-verde, y esto lo va a mirar gente planificando rutas.
+   ── POR QUE "SIN REQUERIMIENTO" YA NO ES VERDE [d9 2026-09-22] ──────────────
+   El cambio se pidio por gusto y termino arreglando una falla de verdad.
+
+   El verde anterior (#0d8f0d) se habia afinado contra PROTANOPIA: ahi separaba
+   del rojo holgadamente. Nunca se midio contra DEUTERANOPIA, que es la forma
+   MAS COMUN. Medido ahora:
+
+       verde #0d8f0d  vs  rojo #d03b3b   →  ΔE 2,4 bajo deuteranopia
+
+   Dos con cuatro. Para una de cada doce personas, el pin del cliente tranquilo
+   y el del cliente que se queda sin gas mañana eran el MISMO color. En un mapa
+   de reparto eso no es un detalle estetico.
+
+       celeste #1a7fd0  vs  rojo #d03b3b  →  ΔE 22,9 protan · 31,3 vision normal
+
+   Es la razon por la que el azul le gana al verde en los semaforos de datos: la
+   confusion rojo-verde es justamente la que existe, y azul-rojo no se confunde
+   bajo ninguna de las tres formas.
+
+   ── EL GRIS SOLO ACLARA DE DIA ─────────────────────────────────────────────
+   Se pidio un plomo mas claro. En claro se puede (#a8a6a0). En OSCURO no: a
+   #9c9a94 ya choca con el acento teal #3fbdb4 (ΔE 11,8 con vision normal, 4,9
+   bajo deuteranopia) y el numero de orden del pin queda encima de su propio
+   fondo. Por eso el gris ahora es distinto por tema — de noche se queda en
+   #898781, que mide 15,2 contra el acento.
 
    El naranjo queda 2,09:1 contra la superficie clara, bajo el minimo de 3:1.
    La compensacion obligatoria es que el color NUNCA viaja solo: cada pin lleva
    los DIAS RESTANTES escritos adentro, y la lista de abajo repite el estado en
    palabras. Si alguien no distingue los colores, igual lee el numero.
+
+   El nombre de la variable sigue siendo --verde porque ES EL DATO: el servidor
+   devuelve color='verde' y el portal arma la clase .pin-verde con eso. Cambiar
+   el nombre obligaria a tocar la base de datos para un cambio de tono. El tono
+   vive en --celeste; --verde apunta ahi.
 ═══════════════════════════════════════════════════════════════════════════ */
 :root{
   color-scheme: light;
-  --rojo:#d03b3b; --naranjo:#f59e0b; --verde:#0d8f0d; --gris:#898781;
+  --celeste:#1a7fd0;
+  --rojo:#d03b3b; --naranjo:#f59e0b; --verde:var(--celeste); --gris:#a8a6a0;
+  /* ── LOS PINES NO SIGUEN AL TEMA ────────────────────────────────────────
+     Un pin no vive sobre la superficie de la aplicacion: vive sobre las
+     baldosas de OpenStreetMap, que son claras de dia Y de noche. Si el gris
+     del pin se aclarara junto con el de la interfaz, el "?" blanco de adentro
+     —que es el encoding secundario obligatorio— caeria de 3,6:1 a 2,4:1 y
+     dejaria de leerse. Por eso el pin conserva los valores medidos contra el
+     mapa y solo la interfaz cambia de tono. */
+  --pin-celeste:#1a7fd0; --pin-gris:#898781;
   --plano:#f4f4f2; --sup:#fcfcfb; --sup-2:#eeeeec;
   --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
   --borde:#dedcd6;
@@ -85,6 +120,9 @@
     --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
     --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
     --borde:#33332f; --acento:#3fbdb4; --acento-suave:#123330;
+    /* El celeste sube un paso para la superficie oscura; el gris NO puede
+       aclararse aqui sin chocar con el acento teal (ver la nota de arriba). */
+    --celeste:#2f86dd; --gris:#898781;
     --marca-teal:#3fbdb4; --marca-naranja:#FD8534;
     --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
     --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
@@ -95,6 +133,9 @@
   --plano:#0d0d0d; --sup:#1a1a19; --sup-2:#242422;
   --ink:#fff; --ink-2:#c3c2b7; --ink-3:#898781;
   --borde:#33332f; --acento:#3fbdb4; --acento-suave:#123330;
+  /* El celeste sube un paso para la superficie oscura; el gris NO puede
+     aclararse aqui sin chocar con el acento teal (ver la nota de arriba). */
+  --celeste:#2f86dd; --gris:#898781;
   --marca-teal:#3fbdb4; --marca-naranja:#FD8534;
   --sombra:0 1px 2px rgba(0,0,0,.4),0 4px 12px rgba(0,0,0,.3);
   --alerta-fondo:#2c1616; --alerta-ink:#f3b0b0; --alerta-borde:#5a2a2a;
@@ -151,6 +192,7 @@ input,select,textarea{font:inherit;color:inherit}
   background:var(--alerta-fondo);color:var(--alerta-ink);border:1px solid var(--alerta-borde);
 }
 .nota{font-size:12px;color:var(--ink-3);margin-top:16px;line-height:1.5}
+.nota-campo{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.45}
 
 /* ── Armazon ──────────────────────────────────────────────────────────────── */
 #vista-app{display:none;flex-direction:column;min-height:100dvh}
@@ -244,7 +286,7 @@ header .marca{font-size:16px;margin:0}
   letter-spacing:-.3px;
 }
 .pin-rojo{background:var(--rojo)} .pin-naranjo{background:var(--naranjo);color:#4a2c00}
-.pin-verde{background:var(--verde)} .pin-gris{background:var(--gris)}
+.pin-verde{background:var(--pin-celeste)} .pin-gris{background:var(--pin-gris)}
 .pin-sel{outline:3px solid var(--acento);outline-offset:2px}
 .pin{position:relative}
 /* El numero de orden va en una chapa aparte, no reemplaza a los dias: los dias
@@ -269,6 +311,11 @@ header .marca{font-size:16px;margin:0}
 }
 .barra-ruta[hidden]{display:none}
 .barra-ruta .crece{flex:1}
+.busca-lugar{
+  padding:6px 10px;border:1.5px solid var(--borde);border-radius:8px;
+  background:var(--sup);color:var(--ink);font:13px inherit;min-width:190px;
+}
+.busca-lugar:focus{outline:2px solid var(--acento);outline-offset:1px;border-color:var(--acento)}
 .modo-base #mapa{cursor:crosshair}
 .leaflet-popup-content{margin:11px 13px;font:13px/1.45 inherit;min-width:190px}
 .pop-nom{font-weight:800;font-size:14px;margin-bottom:2px}
@@ -493,7 +540,11 @@ header .marca{font-size:16px;margin:0}
 
     <div class="campo">
       <label for="mc-device">Identificador del equipo</label>
-      <input id="mc-device" required placeholder="SG-XXXXXXXX">
+      <input id="mc-device" required placeholder="SG-XXXXXXXX" maxlength="11"
+             spellcheck="false" autocapitalize="characters"
+             style="text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
+      <div class="nota-campo">Once caracteres: <b>SG-</b> y ocho dígitos del 0 al 9 o
+        letras de la A a la F. Viene impreso en la etiqueta de la báscula.</div>
     </div>
     <div class="campo">
       <label for="mc-nombre">Nombre del cliente</label>
@@ -604,10 +655,39 @@ aplicarTema(document.documentElement.getAttribute('data-theme') || temaActual())
 const esc = (s) => String(s == null ? '' : s)
       .replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
+/* ── EL IDENTIFICADOR DEL EQUIPO ────────────────────────────────────────────
+   Siempre "SG-" mas 8 digitos HEXADECIMALES en mayuscula. Once caracteres, sin
+   excepcion.
+
+   No es un correlativo ni un numero que alguien asigne: el firmware lo DERIVA
+   de la MAC de la placa —los ultimos 8 caracteres de la MAC sin los dos
+   puntos— y lo recalcula igual en cada arranque.
+
+       MAC 8C:BF:EA:45:64:9C  →  8CBFEA45649C  →  SG-EA45649C
+
+   De ahi salen dos cosas que conviene saber: la misma bascula conserva su
+   identificador aunque se reflashee, y solo pueden aparecer 0-9 y A-F. Una "G"
+   o una "Z" en ese campo es un error de tipeo, no un equipo distinto.
+
+   El firmware rechaza cualquier otra forma (v81.08, linea 797). Sin esta
+   validacion, un identificador mal escrito no falla al guardarse: se guarda
+   feliz y falla semanas despues, como un cliente que nunca recibio datos y
+   nadie sabe por que. Se ataja al escribirlo. */
+const ID_EQUIPO = /^SG-[0-9A-F]{8}$/;
+const normId = (s) => String(s == null ? '' : s).trim().toUpperCase();
+const AYUDA_ID = 'El identificador va como SG- y ocho caracteres (0-9 y A-F), '
+               + 'por ejemplo SG-EA45649C. Está impreso en la etiqueta de la báscula.';
+
 let MAPA = null, CAPA = null, FILAS = [], MARCAS = {}, FILTRO = 'todos', SEL = null;
 let INFO = null, CAPA_RUTA = null, RUTA = null, MODO_BASE = false;
 
-/* Santiago. Solo se usa si ningun cliente tiene coordenadas todavia. */
+/* Santiago, y SOLO como ultimo recurso. El orden real de encuadre es:
+      1. los clientes con coordenadas (fitBounds, en pintar())
+      2. la base, si no hay ningun cliente ubicado todavia
+      3. esto
+   O sea que una distribuidora de Concepcion nunca deberia ver Santiago una vez
+   que tenga base o un cliente. Si la ve, es porque no tiene ninguna de las dos
+   — y para eso el modo base trae buscador de ciudad. */
 const CENTRO_POR_DEFECTO = [-33.4489, -70.6693];
 
 /* ── Acceso ───────────────────────────────────────────────────────────────── */
@@ -676,7 +756,11 @@ async function arrancar(){
 
 function iniciarMapa(){
     if (MAPA) return;
-    MAPA = L.map('mapa', { zoomControl: true }).setView(CENTRO_POR_DEFECTO, 12);
+    /* Arrancar en la base cuando existe. Sin esto, una distribuidora sin
+       clientes ubicados veia Santiago un instante y recien despues saltaba —o
+       no saltaba— a su ciudad. */
+    const inicio = hayBase() ? [INFO.base_lat, INFO.base_lng] : CENTRO_POR_DEFECTO;
+    MAPA = L.map('mapa', { zoomControl: true }).setView(inicio, hayBase() ? 13 : 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -939,33 +1023,106 @@ function kmEntre(a, b){
 
 function hayBase(){ return INFO && INFO.base_lat != null && INFO.base_lng != null; }
 
+/* ── COMO SE LLEVA EL MAPA A OTRA REGION [d9 2026-09-22] ────────────────────
+   El mapa nunca estuvo anclado a Santiago: se encuadra solo sobre los clientes
+   y la base, y Santiago es apenas el respaldo de cuando no hay ni una cosa ni
+   la otra. Pero una distribuidora de Concepcion que recien entra ve Santiago y
+   no tiene como llegar a su ciudad salvo arrastrando el mapa.
+
+   Por eso el modo base trae buscador. Se escribe «Concepcion», el mapa vuela
+   hasta alla, y recien entonces se hace clic donde sale el camion. Puesta la
+   base, todo lo demas la sigue.
+
+   El pais lo fija PAIS_BUSQUEDA, mas abajo, y es lo unico que habria que tocar
+   para operar fuera de Chile. */
 $('btn-base').addEventListener('click', () => {
     if (MODO_BASE){ salirModoBase(); return; }
     MODO_BASE = true;
     document.body.classList.add('modo-base');
     $('btn-base').textContent = 'Cancelar';
-    mostrarBarraRuta('Haz clic en el mapa donde sale el camión. '
-        + (hayBase() ? 'Eso reemplaza la base actual.' : ''), true);
+    mostrarBarraRuta(
+        '<span class="crece">Haz clic en el mapa donde sale el camión. '
+      + (hayBase() ? 'Eso reemplaza la base actual. ' : '')
+      + '<span style="color:var(--ink-2)">¿El mapa está en otra ciudad? Búscala aquí.</span></span>'
+      + '<input id="base-buscar" class="busca-lugar" placeholder="Ciudad o dirección…" '
+      +        'autocomplete="off" aria-label="Ir a una ciudad o dirección">'
+      + '<button class="btn" id="base-ir">Ir</button>', true);
+
+    /* mostrarBarraRuta reemplaza el HTML entero, asi que los oyentes se
+       enganchan DESPUES de pintarlo: los nodos anteriores ya no existen. */
+    const caja = $('base-buscar');
+    $('base-ir').addEventListener('click', () => irALugar(caja.value));
+    caja.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter'){ ev.preventDefault(); irALugar(caja.value); }
+    });
+    caja.focus();
 });
+
+async function irALugar(texto){
+    const q = (texto || '').trim();
+    if (q.length < 3) return;
+    const boton = $('base-ir');
+    if (boton){ boton.disabled = true; boton.textContent = 'Buscando…'; }
+    try {
+        const p = await buscarLugar(q);
+        if (!p){ alert('No se encontró «' + q + '». Prueba con la comuna o la ciudad.'); return; }
+        /* Zoom 13: se ve la ciudad completa y las calles principales. Acercar
+           mas obligaria a alejar de nuevo para ubicarse. */
+        MAPA.setView([p.lat, p.lng], 13);
+    } finally {
+        if (boton){ boton.disabled = false; boton.textContent = 'Ir'; }
+    }
+}
 function salirModoBase(){
     MODO_BASE = false;
     document.body.classList.remove('modo-base');
     $('btn-base').textContent = 'Base';
     pintarBarraRuta();
 }
+/* Guarda base. Las coordenadas y el nombre viajan SIEMPRE juntos porque la RPC
+   reemplaza la fila entera; quien solo quiera renombrar tiene que volver a
+   mandar las coordenadas que ya estaban. Por eso existe renombrarBase(). */
+async function guardarBase(lat, lng, nombre){
+    const limpio = (nombre || '').trim() || null;
+    const { data, error } = await db.rpc('distribuidora_base_guardar',
+        { p_lat: lat, p_lng: lng, p_nombre: limpio });
+    if (error || !data || data.ok !== true){
+        alert('No se pudo guardar la base' + (data && data.msg ? ': ' + data.msg : '.'));
+        return false;
+    }
+    INFO.base_lat = lat; INFO.base_lng = lng; INFO.base_nombre = limpio;
+    return true;
+}
+
 async function fijarBase(lat, lng){
     const nombre = prompt('Nombre de la base (opcional):', (INFO && INFO.base_nombre) || 'Base de reparto');
     if (nombre === null){ salirModoBase(); return; }
-    const { data, error } = await db.rpc('distribuidora_base_guardar',
-        { p_lat: lat, p_lng: lng, p_nombre: nombre.trim() || null });
-    if (error || !data || data.ok !== true){
-        alert('No se pudo guardar la base' + (data && data.msg ? ': ' + data.msg : '.'));
-        salirModoBase(); return;
-    }
-    INFO.base_lat = lat; INFO.base_lng = lng; INFO.base_nombre = nombre.trim() || null;
+    const ok = await guardarBase(lat, lng, nombre);
     salirModoBase();
-    pintar();
+    if (ok) pintar();
 }
+
+/* ── DEFECTO [d9 2026-09-22]: no habia forma de renombrar sin mover ──────────
+   El unico camino al nombre pasaba por el modo base: apretar «Base» y hacer
+   clic en el mapa. O sea que para corregir una letra del nombre habia que
+   volver a marcar el punto de salida, y el punto terminaba donde cayera el
+   clic — a una cuadra, o a un kilometro. Quien no quisiera mover nada no tenia
+   salida: cancelar el prompt cancelaba todo.
+
+   Eran dos operaciones distintas metidas en un solo gesto. Ahora el nombre se
+   cambia desde el globo de la casita, reusando las coordenadas guardadas, y
+   mover sigue siendo un acto aparte y explicito. */
+window.renombrarBase = async function(){
+    if (!hayBase()) return;
+    const nombre = prompt('Nombre de la base:', (INFO && INFO.base_nombre) || 'Base de reparto');
+    if (nombre === null) return;                       /* cancelar no cambia nada */
+    if (await guardarBase(INFO.base_lat, INFO.base_lng, nombre)) pintar();
+};
+
+window.moverBase = function(){
+    MAPA.closePopup();
+    if (!MODO_BASE) $('btn-base').click();
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EL ORDEN DE LA RUTA — DOS MOTORES
@@ -1155,7 +1312,11 @@ function dibujarBaseYRuta(porId){
         title: (INFO.base_nombre || 'Base de reparto'),
         zIndexOffset: 500
     }).addTo(CAPA_RUTA).bindPopup('<div class="pop-nom">' + esc(INFO.base_nombre || 'Base de reparto') + '</div>'
-        + '<div style="font-size:12px;color:var(--ink-2)">Punto de salida del reparto</div>');
+        + '<div style="font-size:12px;color:var(--ink-2)">Punto de salida del reparto</div>'
+        + '<div class="pop-acciones">'
+        +   '<button class="btn" onclick="renombrarBase()">Cambiar nombre</button>'
+        +   '<button class="btn" onclick="moverBase()">Mover</button>'
+        + '</div>');
 
     if (!RUTA) return;
 
@@ -1259,6 +1420,13 @@ function abrirModal(f){
 $('form-cliente').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     mostrarError('error-cliente','');
+    /* Se valida ANTES de viajar al servidor, y se normaliza a mayuscula: la
+       etiqueta se lee a mano y "sg-ea45649c" es el mismo equipo. */
+    const device = normId($('mc-device').value);
+    if (!ID_EQUIPO.test(device)){
+        mostrarError('error-cliente', AYUDA_ID);
+        return;
+    }
     const lat = $('mc-lat').value === '' ? null : parseFloat($('mc-lat').value);
     const lng = $('mc-lng').value === '' ? null : parseFloat($('mc-lng').value);
     /* La base exige que las dos vayan juntas o ninguna; se avisa aqui para no
@@ -1271,7 +1439,7 @@ $('form-cliente').addEventListener('submit', async (ev) => {
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
         const { data, error } = await db.rpc('distribuidora_cliente_guardar', {
-            p_device_id: $('mc-device').value.trim(),
+            p_device_id: device,
             p_nombre:    $('mc-nombre').value.trim(),
             p_direccion: $('mc-direccion').value.trim() || null,
             p_comuna:    $('mc-comuna').value.trim() || null,
@@ -1504,7 +1672,13 @@ function csvRevisar(){
     let buenas = 0;
     const filas = r.filas.map((f, i) => {
         const prob = [];
-        if (!f.device_id) prob.push('falta el equipo');
+        /* El identificador se normaliza aqui, antes de revisarlo: un CSV
+           exportado de una planilla trae minusculas y espacios con toda
+           naturalidad, y eso no es un error del operador. Lo que si es error
+           es una letra que no existe en hexadecimal. */
+        f.device_id = normId(f.device_id);
+        if (!f.device_id)                    prob.push('falta el equipo');
+        else if (!ID_EQUIPO.test(f.device_id)) prob.push('identificador mal formado (SG- y 8 caracteres 0-9 A-F)');
         if (!f.nombre)    prob.push('falta el nombre');
         const la = csvNumero(f.lat), lo = csvNumero(f.lng);
         if (Number.isNaN(la) || Number.isNaN(lo)) prob.push('coordenada no numérica');
@@ -1520,9 +1694,11 @@ function csvRevisar(){
     CSV_FILAS = filas;
     const malas = filas.length - buenas;
     $('csv-previo').innerHTML =
-        '<div class="resumen-previo">Se leyeron ' + filas.length + ' filas · '
-        + '<span style="color:var(--verde)">' + buenas + ' listas</span>'
-        + (malas ? ' · <span style="color:var(--rojo)">' + malas + ' con problemas</span>' : '')
+        '<div class="resumen-previo">Se '
+        + (filas.length === 1 ? 'leyó 1 fila' : 'leyeron ' + filas.length + ' filas') + ' · '
+        + '<span style="color:var(--verde)">' + buenas + (buenas === 1 ? ' lista' : ' listas') + '</span>'
+        + (malas ? ' · <span style="color:var(--rojo)">' + malas
+                 + (malas === 1 ? ' con problema' : ' con problemas') + '</span>' : '')
         + ' <span style="font-weight:400;color:var(--ink-2)">(separador «'
         + (r.sep === '\t' ? 'tabulador' : r.sep) + '»)</span></div>'
         + '<div class="envoltorio-previo"><table class="tabla-previo">'
@@ -1614,27 +1790,49 @@ $('csv-archivo').addEventListener('change', async (ev) => {
    consulta por segundo. Por eso esto es un boton que se aprieta una vez y no
    una busqueda que dispara sola mientras se escribe. Para cargar una cartera
    entera hay que importar un CSV que ya traiga coordenadas. */
+
+/* EL PAIS DE OPERACION, EN UN SOLO LUGAR.
+   Sin este filtro, buscar «Concepcion» devuelve la de Paraguay tan facil como
+   la del Bio-Bio, y el planificador no tiene como notarlo: el mapa se ve igual
+   de convincente en los dos casos. Para operar en otro pais se cambian estas
+   dos lineas —el codigo ISO y el nombre que se pega a la consulta— y nada mas.
+   Son los dos unicos puntos del portal que saben en que pais estamos. */
+const PAIS_BUSQUEDA = 'cl';
+const PAIS_NOMBRE   = 'Chile';
+
+/* Devuelve {lat, lng, etiqueta} o null. Un unico camino a Nominatim: el
+   buscador del formulario de cliente y el del modo base entran por aqui. */
+async function buscarLugar(consulta){
+    try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1'
+                  + '&countrycodes=' + PAIS_BUSQUEDA
+                  + '&q=' + encodeURIComponent(consulta);
+        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const j = await r.json();
+        if (!Array.isArray(j) || !j.length) return null;
+        return { lat: parseFloat(j[0].lat), lng: parseFloat(j[0].lon),
+                 etiqueta: j[0].display_name || '' };
+    } catch(e){
+        console.warn('[geo]', e);
+        return null;
+    }
+}
+
 $('btn-geo').addEventListener('click', async () => {
-    const dir = [$('mc-direccion').value.trim(), $('mc-comuna').value.trim(), 'Chile']
+    const dir = [$('mc-direccion').value.trim(), $('mc-comuna').value.trim(), PAIS_NOMBRE]
                 .filter(Boolean).join(', ');
     if (dir.length < 8){ mostrarError('error-cliente','Escribe primero la dirección y la comuna.'); return; }
     const btn = $('btn-geo');
     btn.disabled = true; btn.textContent = 'Buscando…';
     try {
-        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cl&q='
-                  + encodeURIComponent(dir);
-        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        const j = await r.json();
-        if (!Array.isArray(j) || !j.length){
+        const p = await buscarLugar(dir);
+        if (!p){
             mostrarError('error-cliente','No se encontró esa dirección. Escribe las coordenadas a mano o marca el punto después en el mapa.');
             return;
         }
-        $('mc-lat').value = parseFloat(j[0].lat).toFixed(6);
-        $('mc-lng').value = parseFloat(j[0].lon).toFixed(6);
-        $('geo-nota').textContent = 'Encontrado: ' + (j[0].display_name || '') + ' — confírmalo antes de guardar.';
-    } catch(e){
-        console.warn('[geo]', e);
-        mostrarError('error-cliente','No se pudo consultar el buscador de direcciones.');
+        $('mc-lat').value = p.lat.toFixed(6);
+        $('mc-lng').value = p.lng.toFixed(6);
+        $('geo-nota').textContent = 'Encontrado: ' + p.etiqueta + ' — confírmalo antes de guardar.';
     } finally {
         btn.disabled = false; btn.textContent = 'Buscar coordenadas desde la dirección';
     }
