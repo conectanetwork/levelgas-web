@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d6-hoja-de-reparto-20260921">
+<meta name="lg-build" content="d7-ruta-por-calles-20260922">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -967,7 +967,51 @@ async function fijarBase(lat, lng){
     pintar();
 }
 
-$('btn-ruta').addEventListener('click', () => {
+/* ═══════════════════════════════════════════════════════════════════════════
+   EL ORDEN DE LA RUTA — DOS MOTORES
+   ───────────────────────────────────────────────────────────────────────────
+   1. LINEA RECTA (Haversine, aqui mismo). Instantaneo, sin red y sin cuota.
+      No sabe de calles de un sentido, del rio ni de la Costanera.
+   2. POR CALLES (OpenRouteService, a traves de la funcion `ruta-optima`).
+      Tarda uno o dos segundos y tiene cuota diaria.
+
+   Se usan EN ESE ORDEN, no uno u otro: al apretar el boton se pinta de
+   inmediato la recta y se sale a pedir la buena; cuando llega, reemplaza a la
+   anterior. Calcular primero y mostrar despues dejaria el boton mudo mientras
+   se espera, y si la red falla no quedaria nada en pantalla. Asi siempre hay
+   una ruta utilizable y la mejor llega sola.
+
+   AL SERVICIO SOLO VAN COORDENADAS. Ni nombres, ni direcciones, ni device_id:
+   se manda una lista de [lng,lat] y vuelve una lista de POSICIONES (0, 1, 2…)
+   que aqui se traduce de vuelta a clientes. El servicio nunca supo de quien
+   era cada punto. La funcion del servidor rechaza cualquier campo de mas, asi
+   que esto no depende de que nadie se acuerde.
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* El mismo reparto se planifica varias veces en una mañana —se prueba un
+   filtro, se vuelve atras—. Sin memoria cada vuelta gasta cuota por una
+   respuesta identica. La llave es el CONJUNTO de paradas, ordenado: el mismo
+   grupo de casas en distinto orden es la misma pregunta. */
+const CACHE_RUTA = new Map();
+function claveRuta(base, paradas){
+    return base.join(',') + '|' + paradas.map(p => p.join(',')).sort().join(';');
+}
+
+/* Evita que una respuesta lenta pise una ruta mas nueva: si el planificador
+   volvio a apretar el boton con otro filtro, la respuesta vieja se descarta. */
+let RUTA_SEQ = 0;
+
+/* La atribucion de ORS es obligatoria por sus terminos y aparece recien cuando
+   de verdad se usa el servicio. */
+let ATRIBUCION_ORS = false;
+function atribuirORS(){
+    if (ATRIBUCION_ORS || !MAPA || !MAPA.attributionControl) return;
+    MAPA.attributionControl.addAttribution(
+        '&copy; <a href="https://openrouteservice.org/">openrouteservice</a> by HeiGIT');
+    ATRIBUCION_ORS = true;
+}
+
+$('btn-ruta').addEventListener('click', async () => {
     if (RUTA){ RUTA = null; pintar(); return; }
     if (!hayBase()){
         alert('Primero marca la base.\n\nPulsa «Base» y haz clic en el mapa donde sale el camión: '
@@ -977,7 +1021,10 @@ $('btn-ruta').addEventListener('click', () => {
     const conPin = visibles().filter(f => f.lat != null && f.lng != null);
     if (!conPin.length){ alert('No hay clientes con ubicación entre los que estás viendo.'); return; }
 
-    /* Vecino mas cercano desde la base. */
+    const seq = ++RUTA_SEQ;
+
+    /* ── 1. Recta, ya ─────────────────────────────────────────────────────
+       Vecino mas cercano desde la base. */
     const quedan = conPin.slice();
     const orden = [];
     let aqui = [INFO.base_lat, INFO.base_lng];
@@ -994,9 +1041,60 @@ $('btn-ruta').addEventListener('click', () => {
         aqui = [elegido.lat, elegido.lng];
     }
     const vuelta = kmEntre(aqui, [INFO.base_lat, INFO.base_lng]);
-    RUTA = { orden, km: total, kmVuelta: vuelta, paradas: orden.length };
+    RUTA = { motor:'recta', orden, km: total, kmVuelta: vuelta, paradas: orden.length };
+    pintar();
+
+    /* ── 2. Por calles, cuando llegue ─────────────────────────────────── */
+    /* ORS trabaja en [lng, lat]. Invertirlo es el error clasico y no avisa:
+       devuelve una ruta perfectamente coherente por otro continente. */
+    const base = [Number(INFO.base_lng), Number(INFO.base_lat)];
+    const paradas = conPin.map(f => [Number(f.lng), Number(f.lat)]);
+    const llave = claveRuta(base, paradas);
+
+    let res = CACHE_RUTA.get(llave);
+    if (!res){
+        mostrarBarraRuta(estadoRuta(RUTA) + ' <span style="color:var(--ink-2)">· '
+                       + 'buscando el orden por calles…</span>', true);
+        res = await pedirRutaCalles(base, paradas);
+        if (res && (res.ok || res.motivo === 'cuota')) CACHE_RUTA.set(llave, res);
+    }
+    if (seq !== RUTA_SEQ || !RUTA) return;   // la ruta ya cambio: esto es viejo
+
+    if (res && res.ok && Array.isArray(res.orden) && res.orden.length === conPin.length){
+        atribuirORS();
+        RUTA = {
+            motor: 'calles',
+            orden: res.orden.map(i => conPin[i].cliente_id),
+            km: res.km, minutos: res.minutos, paradas: conPin.length
+        };
+        pintar();
+        return;
+    }
+    /* La recta se queda en pantalla; solo se explica por que. */
+    RUTA.aviso = (res && res.msg) ? res.msg : null;
     pintar();
 });
+
+async function pedirRutaCalles(base, paradas){
+    try {
+        const { data: s } = await db.auth.getSession();
+        const token = s && s.session && s.session.access_token;
+        if (!token) return { ok:false, msg:'Sesión vencida.' };
+        const r = await fetch(SUPABASE_URL + '/functions/v1/ruta-optima', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json',
+                       'apikey': SUPABASE_KEY,
+                       'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ base, paradas })
+        });
+        const j = await r.json().catch(() => null);
+        if (!j) return { ok:false, msg:'El servicio de rutas no respondió.' };
+        return j;
+    } catch(e){
+        console.warn('[ruta]', e);
+        return { ok:false, msg:'Sin conexión con el servicio de rutas.' };
+    }
+}
 
 function ordenDe(id){
     if (!RUTA) return null;
@@ -1009,15 +1107,41 @@ function mostrarBarraRuta(html, visible){
     el.innerHTML = html;
     el.hidden = !visible;
 }
+function duracion(min){
+    if (min == null) return '';
+    const m = Math.round(min);
+    return m < 60 ? m + ' min'
+                  : Math.floor(m/60) + ' h ' + String(m % 60).padStart(2,'0') + ' min';
+}
+
+/* Las dos rutas se rotulan distinto A PROPOSITO. Un total que diga "23 km" a
+   secas se lee como distancia de manejo; si venia de la recta, desarma la
+   planificacion del dia. Mientras la cifra no sea de calles, lo dice. */
+function estadoRuta(r){
+    const cab = '<b>Ruta de ' + r.paradas + ' parada' + (r.paradas === 1 ? '' : 's') + '</b> desde '
+              + esc((INFO && INFO.base_nombre) || 'la base');
+    const gris = (t) => ' <span style="color:var(--ink-2)">— ' + t + '</span>';
+    if (r.motor === 'calles'){
+        /* km y minutos pueden faltar si el motor de calles no los devolvio. El
+           orden sigue sirviendo; la cifra no se inventa. */
+        const p = [];
+        if (r.km != null)      p.push(r.km.toFixed(1) + ' km');
+        if (r.minutos != null) p.push(duracion(r.minutos) + ' de manejo');
+        return cab + (p.length ? ' · ' + p.join(' · ') : '')
+             + gris(p.length ? 'por calles, ida y regreso' : 'orden por calles');
+    }
+    return cab + ' · ' + r.km.toFixed(1) + ' km ida, '
+         + (r.km + r.kmVuelta).toFixed(1) + ' km con regreso'
+         + gris('en línea recta, no es distancia de manejo');
+}
+
 function pintarBarraRuta(){
     if (MODO_BASE) return;
     if (!RUTA){ $('barra-ruta').hidden = true; return; }
     mostrarBarraRuta(
-        '<span class="crece"><b>Ruta de ' + RUTA.paradas + ' parada'
-      + (RUTA.paradas === 1 ? '' : 's') + '</b> desde '
-      + esc((INFO && INFO.base_nombre) || 'la base') + ' · '
-      + RUTA.km.toFixed(1) + ' km ida, ' + (RUTA.km + RUTA.kmVuelta).toFixed(1) + ' km con regreso '
-      + '<span style="color:var(--ink-2)">— en línea recta, no es distancia de manejo</span></span>'
+        '<span class="crece">' + estadoRuta(RUTA)
+      + (RUTA.aviso ? '<br><span style="color:var(--naranjo)">' + esc(RUTA.aviso) + '</span>' : '')
+      + '</span>'
       + '<button class="btn" onclick="RUTA=null;pintar()">Quitar ruta</button>', true);
 }
 
@@ -1171,9 +1295,13 @@ function hojaConstruir(){
       + (FILTRO !== 'todos' ? ' · filtro: ' + esc(NOMBRE_FILTRO[FILTRO]) : '')
       + (conRuta
           ? '<br>Orden de ruta desde ' + esc((INFO && INFO.base_nombre) || 'la base')
-            + ' · ' + RUTA.km.toFixed(1) + ' km ida, '
-            + (RUTA.km + RUTA.kmVuelta).toFixed(1) + ' km con regreso '
-            + '— <b>en línea recta, no es distancia de manejo</b>'
+            + (RUTA.motor === 'calles'
+                ? (RUTA.km != null ? ' · ' + RUTA.km.toFixed(1) + ' km' : '')
+                  + (RUTA.minutos != null ? ' · ' + duracion(RUTA.minutos) + ' de manejo' : '')
+                  + ' — <b>por calles</b>, ida y regreso'
+                : ' · ' + RUTA.km.toFixed(1) + ' km ida, '
+                  + (RUTA.km + RUTA.kmVuelta).toFixed(1) + ' km con regreso '
+                  + '— <b>en línea recta, no es distancia de manejo</b>')
           : '<br>Orden por urgencia. Para ordenar por cercanía, marca la base y pulsa «Planificar ruta».')
       + '</div>';
 
@@ -1207,7 +1335,12 @@ function hojaConstruir(){
       + 'Los días restantes son una estimación a partir del consumo promedio. '
       + '«Revisar» significa que el equipo no reportó o todavía no tiene historial: '
       + 'confirmar el cilindro en terreno.'
-      + (conRuta ? '<br>Las distancias son en línea recta. El recorrido real por calle es mayor.' : '')
+      + (conRuta
+          ? (RUTA.motor === 'calles'
+              ? '<br>Recorrido calculado por calles con openrouteservice (HeiGIT), '
+                + 'datos de OpenStreetMap. El tiempo no incluye la detención en cada casa.'
+              : '<br>Las distancias son en línea recta. El recorrido real por calle es mayor.')
+          : '')
       + '</div>';
 }
 
