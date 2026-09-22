@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d7-ruta-por-calles-20260922">
+<meta name="lg-build" content="d8-trazado-por-calles-20260922">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -1065,7 +1065,8 @@ $('btn-ruta').addEventListener('click', async () => {
         RUTA = {
             motor: 'calles',
             orden: res.orden.map(i => conPin[i].cliente_id),
-            km: res.km, minutos: res.minutos, paradas: conPin.length
+            km: res.km, minutos: res.minutos, paradas: conPin.length,
+            trazado: trazadoConfiable(res.geometria, [INFO.base_lat, INFO.base_lng])
         };
         pintar();
         return;
@@ -1157,10 +1158,59 @@ function dibujarBaseYRuta(porId){
         + '<div style="font-size:12px;color:var(--ink-2)">Punto de salida del reparto</div>');
 
     if (!RUTA) return;
+
+    /* Con trazado real se dibuja la calzada, linea llena. Sin el, la recta va
+       PUNTEADA: el punteado es lo que dice que eso no es un camino, es un
+       "primero este, despues este otro". Dibujar una recta llena entre dos
+       casas mientras el texto de al lado promete "por calles" seria mentir con
+       la parte de la pantalla que mas se mira. */
+    if (RUTA.trazado && RUTA.trazado.length > 1){
+        L.polyline(RUTA.trazado, { color:'#016b66', weight:5, opacity:.85 }).addTo(CAPA_RUTA);
+        return;
+    }
     const linea = [[INFO.base_lat, INFO.base_lng]];
     RUTA.orden.forEach(id => { const f = porId[id]; if (f) linea.push([f.lat, f.lng]); });
     linea.push([INFO.base_lat, INFO.base_lng]);
     L.polyline(linea, { color:'#016b66', weight:3, opacity:.75, dashArray:'7 6' }).addTo(CAPA_RUTA);
+}
+
+/* ═══ Polilinea codificada ═══════════════════════════════════════════════════
+   El formato de Google: cada coordenada va como diferencia con la anterior, en
+   grupos de 5 bits. Son veinte lineas y evita cargar una libreria entera.
+
+   La PRECISION es el detalle que arruina el dibujo sin avisar. ORS entrega
+   precision 5; si algun dia entregara 6, todo saldria dividido por diez —una
+   ruta perfectamente trazada mil kilometros al noroeste— y el mapa no se
+   quejaria. Por eso abajo se comprueba contra la base antes de creerle.
+═══════════════════════════════════════════════════════════════════════════ */
+function decodificarPolilinea(s, precision){
+    const factor = Math.pow(10, precision || 5);
+    const puntos = [];
+    let i = 0, lat = 0, lng = 0;
+    while (i < s.length){
+        let b, turno = 0, resultado = 0;
+        do { b = s.charCodeAt(i++) - 63; resultado |= (b & 0x1f) << turno; turno += 5; } while (b >= 0x20);
+        lat += (resultado & 1) ? ~(resultado >> 1) : (resultado >> 1);
+        turno = 0; resultado = 0;
+        do { b = s.charCodeAt(i++) - 63; resultado |= (b & 0x1f) << turno; turno += 5; } while (b >= 0x20);
+        lng += (resultado & 1) ? ~(resultado >> 1) : (resultado >> 1);
+        puntos.push([lat / factor, lng / factor]);
+    }
+    return puntos;
+}
+
+/* Decodifica y solo devuelve el trazado si de verdad pasa cerca de la base.
+   Un dibujo en el lugar equivocado es peor que no dibujar nada: la recta
+   punteada al menos se entiende. */
+function trazadoConfiable(codificado, base){
+    if (!codificado) return null;
+    for (const p of [5, 6]){
+        try {
+            const pts = decodificarPolilinea(codificado, p);
+            if (pts.length > 1 && kmEntre(pts[0], base) < 25) return pts;
+        } catch(e){ /* codificacion rara: se sigue con la recta */ }
+    }
+    return null;
 }
 
 /* ── Acciones ─────────────────────────────────────────────────────────────── */
