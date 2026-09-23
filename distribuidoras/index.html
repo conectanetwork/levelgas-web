@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d10-rotulo-central-20260923">
+<meta name="lg-build" content="d12-esperar-un-minuto-20260923">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -338,6 +338,13 @@ header .marca{font-size:16px;margin:0}
 .modo-base #mapa{cursor:crosshair}
 .leaflet-popup-content{margin:11px 13px;font:13px/1.45 inherit;min-width:190px}
 .pop-nom{font-weight:800;font-size:14px;margin-bottom:2px}
+/* El recuadro de instruccion usa el gris del estado, no el rojo de alerta: el
+   equipo no esta en peligro, solo incomunicado. El rojo aqui competiria con
+   los clientes que de verdad se quedan sin gas manana. */
+.pop-instr{margin-top:8px;padding:7px 9px;border-radius:7px;font-size:11.5px;line-height:1.45;
+  background:var(--sup-2);border-left:3px solid var(--gris);color:var(--ink-2)}
+.pop-instr b{color:var(--ink)}
+.fila-aviso{font-size:11px;color:var(--ink-2);margin-top:2px;font-style:italic}
 .pop-l{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-top:1px solid var(--borde)}
 .pop-l b{font-weight:700}
 .pop-acciones{display:flex;gap:6px;margin-top:9px}
@@ -1000,6 +1007,7 @@ function fila(f){
          +   '<div class="fila-nom">' + esc(f.nombre) + '</div>'
          +   '<div class="fila-dir">' + esc(f.direccion || 'Sin dirección') + (f.comuna ? ', ' + esc(f.comuna) : '') + '</div>'
          +   '<div class="fila-est">' + esc(textoEstado(f)) + sinUbic + '</div>'
+         +   (f.color === 'gris' ? '<div class="fila-aviso">Pídele que apague el equipo 1 minuto y lo encienda</div>' : '')
          + '</div>'
          + '<div class="fila-dias" style="color:var(--' + esc(f.color) + ')">'
          +   esc(etiquetaDias(f)) + '<small>DÍAS</small></div>'
@@ -1026,6 +1034,7 @@ function popup(f){
          + linea('Última conexión', esc(con))
          + linea('Equipo', esc(f.device_id))
          + (f.telefono ? linea('Teléfono', '<a href="tel:' + esc(f.telefono) + '">' + esc(f.telefono) + '</a>') : '')
+         + instruccionSinContacto(f)
          + (f.notas ? '<div style="font-size:12px;color:var(--ink-2);margin-top:6px">' + esc(f.notas) + '</div>' : '')
          + '<div class="pop-acciones">'
          +   '<button class="btn" onclick="entregar(\'' + esc(f.device_id) + '\')">Registrar entrega</button>'
@@ -1033,6 +1042,37 @@ function popup(f){
          + '</div>';
 }
 function linea(k, v){ return '<div class="pop-l"><span>' + k + '</span><b>' + v + '</b></div>'; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUE HACER CON UN CLIENTE EN GRIS  [d11 2026-09-23]
+   ───────────────────────────────────────────────────────────────────────────
+   "Sin dato fiable" describe el problema y no dice nada sobre la salida. El
+   planificador lo lee, no sabe que hacer, y el cliente se queda en gris hasta
+   que alguien va en persona — o hasta que se queda sin gas y reclama.
+
+   La salida casi siempre es la misma y la ejecuta el CLIENTE en treinta
+   segundos, no un tecnico en una visita: apagar, encender, entrar a la red
+   LevelGas. Por eso el texto esta escrito para dictarlo por telefono.
+
+   La excepcion es la bateria baja: con las pilas agotadas el firmware apaga la
+   radio a proposito, el sintoma se ve igual, y mandar a reconfigurar el wifi
+   solo hace perder el tiempo. Si el ultimo porcentaje conocido venia bajo, se
+   dice primero lo de las pilas. */
+function instruccionSinContacto(f){
+    if (f.color !== 'gris') return '';
+    const bateriaBaja = (f.bateria_pct != null && Number(f.bateria_pct) <= 20);
+    const texto = bateriaBaja
+        ? '<b>La última carga conocida era ' + Number(f.bateria_pct).toFixed(0) + ' %.</b> '
+        + 'Con las pilas muy bajas el equipo deja de usar el wifi a propósito. '
+        + 'Pídele al cliente que cambie las pilas; si sigue sin reportar, que apague el equipo, '
+        + 'espere un minuto completo, lo encienda, y se conecte a la red <b>LevelGas</b> que se genera.'
+        : '<b>El equipo perdió la red.</b> '
+        + 'Pídele al cliente que apague el equipo, <b>espere un minuto completo</b>, lo encienda, '
+        + 'y se conecte a la red <b>LevelGas</b> que se genera para reconectarlo a su wifi. '
+        + 'El minuto importa: con un apagón corto la báscula no alcanza a notarlo y no crea la red. '
+        + 'Después de encender tarda unos 30 segundos en aparecer y dura 5 minutos.';
+    return '<div class="pop-instr">' + texto + '</div>';
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    BASE DE REPARTO Y ORDEN DE RUTA
