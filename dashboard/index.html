@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p16-bateria-usb-y-edad-20260923">
+<meta name="lg-build" content="p17-esperar-un-minuto-20260923">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2848,16 +2848,18 @@ function avisoRedPerdida(minutosDesdeUltimoDato){
           + v.toFixed(2) + " V).</b>"
           + "Lo más probable es que necesite pilas nuevas: cuando quedan muy bajas, el equipo deja de "
           + "usar el wifi para no apagarse a medio envío. Cambia las pilas y espera unos minutos. "
-          + "Si después de eso sigue sin reportar, apaga y enciende el equipo y conéctate a la red "
-          + "<b>LevelGas</b> que se genera, para volver a conectar tu báscula a tu wifi.";
+          + "Si después de eso sigue sin reportar, apaga el equipo, <b>espera un minuto completo</b>, "
+          + "enciéndelo, y conéctate a la red <b>LevelGas</b> que se genera para volver a conectar "
+          + "tu báscula a tu wifi.";
     } else {
         msg.innerHTML =
             "<b class=\"t\">Tu báscula perdió la red y lleva " + cuanto + " sin reportar.</b>"
-          + "Apaga y enciende tu equipo y conéctate a la red <b>LevelGas</b> que se ha generado, "
-          + "para conectar tu báscula a tu red wifi. "
-          + "<span style=\"opacity:.85\">La red tarda unos 30 segundos en aparecer después de encender, "
-          + "y queda disponible 5 minutos. Mientras tanto, los datos que ves abajo son los últimos "
-          + "que alcanzó a enviar.</span>";
+          + "Apaga tu equipo, <b>espera un minuto completo</b>, y vuelve a encenderlo. "
+          + "Luego conéctate a la red <b>LevelGas</b> que se genera, para conectar tu báscula a tu wifi. "
+          + "<span style=\"opacity:.85\">El minuto de espera es necesario: si lo enciendes antes, "
+          + "la báscula no alcanza a darse cuenta de que la apagaste y no crea la red. "
+          + "Después de encender tarda unos 30 segundos en aparecer, y dura 5 minutos. "
+          + "Mientras tanto, los datos que ves abajo son los últimos que alcanzó a enviar.</span>";
     }
     box.classList.add("on");
 }
