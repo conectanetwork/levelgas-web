@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p13-nombre-de-bascula-visible-20260920">
+<meta name="lg-build" content="p15-panel-no-se-traba-20260923">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -351,6 +351,20 @@ header{
 .carga-row b{font-weight:800}
 .recambio-banner i{color:var(--orange);margin-top:2px;flex-shrink:0}
 .recambio-banner button{margin-left:auto;flex-shrink:0;background:var(--orange);color:#fff;border:0;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+/* ── AVISO DE RED PERDIDA [p14 2026-09-23] ────────────────────────────────
+   En rojo y no en naranjo: el naranjo de este dashboard significa "algo que
+   mirar pronto", y esto es "tu bascula dejo de existir para el sistema". El
+   numero de dias que muestra el medidor de al lado es de la ultima vez que
+   hubo contacto, asi que mientras este aviso este puesto, TODO lo demas de la
+   pantalla es historia, no presente. Por eso no se puede descartar: se va solo
+   cuando el equipo vuelve a reportar. */
+.red-banner{display:none;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius-sm);font-size:12px;color:#991b1b;margin-bottom:11px;line-height:1.5}
+.red-banner.on{display:flex}
+.red-banner i{color:var(--red);margin-top:2px;flex-shrink:0}
+/* Solo el titular va en su propia linea. Un display:block general partia
+   la frase en «conéctate a la red / LevelGas / que se ha generado». */
+.red-banner b.t{display:block;margin-bottom:3px}
+@media (prefers-color-scheme: dark){ .red-banner{color:#fca5a5} }
 .chart-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .chart-inner{height:240px;position:relative;min-width:100%}
 .chart-inner canvas{height:100%!important}
@@ -889,6 +903,11 @@ header{
         <i class="fas fa-exchange-alt"></i>
         <span id="recambio-msg"></span>
         <button type="button" onclick="ocultarAvisoRecambio()">Ya lo registré</button>
+      </div>
+      <!-- [p14 2026-09-23] la bascula dejo de reportar -->
+      <div id="red-box" class="red-banner">
+        <i class="fas fa-wifi"></i>
+        <span id="red-msg"></span>
       </div>
       <div class="chart-scroll">
         <div class="chart-inner" id="chart-canvas-inner">
@@ -2747,6 +2766,64 @@ function _updateBatStatus(v, pct){
     const btnBat = document.getElementById("act-alm-bat");
     if (btnBat) btnBat.classList.toggle("alarm-active", batAlarm);
 }
+/* ═══════════════════════════════════════════════════════════════════════════
+   AVISO DE RED PERDIDA  [p14 2026-09-23]
+   ───────────────────────────────────────────────────────────────────────────
+   POR QUE 30 HORAS Y NO 24
+
+   El firmware v81 manda un latido diario aunque el cilindro no se mueva
+   (heartbeatCycles >= 96, o sea 96 ciclos de 15 min). Asi que una bascula sana
+   deja una fila al menos cada 24 h. Pasadas esas 24 h mas un margen de 6 h para
+   el ciclo que se corrio, el silencio ya no se explica por "no hubo consumo":
+   el equipo no esta llegando a Supabase.
+
+   Eso corrige de paso una mentira vieja de esta pantalla. Entre 24 h y 7 dias
+   decia "Sin consumo 25h", que es exactamente lo contrario de lo que pasa: no
+   es que el cliente no gaste gas, es que la bascula no esta hablando. Un
+   cliente que lee "sin consumo" no hace nada, porque no suena a problema suyo.
+
+   POR QUE PREGUNTA POR LAS PILAS ANTES DE MANDAR A TOCAR EL WIFI
+
+   Con las pilas casi agotadas el firmware apaga la radio a proposito [C9], para
+   no provocar un brownout. El sintoma es identico —la bascula se calla— pero la
+   solucion es otra. Mandar a alguien a reconfigurar el WiFi cuando lo que
+   necesita son pilas nuevas es hacerle perder la tarde y que despues no crea en
+   el proximo aviso. Por eso, si la ultima tension conocida venia baja, el aviso
+   habla de pilas primero.
+═══════════════════════════════════════════════════════════════════════════ */
+const SIN_CONTACTO_MIN = 30 * 60;   // 30 h en minutos
+
+function avisoRedPerdida(minutosDesdeUltimoDato){
+    const box = document.getElementById("red-box");
+    const msg = document.getElementById("red-msg");
+    if (!box || !msg) return;
+    if (minutosDesdeUltimoDato === null || minutosDesdeUltimoDato < SIN_CONTACTO_MIN){
+        box.classList.remove("on");
+        return;
+    }
+    const horas = Math.round(minutosDesdeUltimoDato / 60);
+    const cuanto = horas < 48 ? horas + " horas" : Math.round(horas / 24) + " días";
+    const v = window._batV;
+    if (typeof v === "number" && v <= BAT_WARN_V){
+        msg.innerHTML =
+            "<b class=\"t\">Tu báscula lleva " + cuanto + " sin reportar y la última carga registrada era baja ("
+          + v.toFixed(2) + " V).</b>"
+          + "Lo más probable es que necesite pilas nuevas: cuando quedan muy bajas, el equipo deja de "
+          + "usar el wifi para no apagarse a medio envío. Cambia las pilas y espera unos minutos. "
+          + "Si después de eso sigue sin reportar, apaga y enciende el equipo y conéctate a la red "
+          + "<b>LevelGas</b> que se genera, para volver a conectar tu báscula a tu wifi.";
+    } else {
+        msg.innerHTML =
+            "<b class=\"t\">Tu báscula perdió la red y lleva " + cuanto + " sin reportar.</b>"
+          + "Apaga y enciende tu equipo y conéctate a la red <b>LevelGas</b> que se ha generado, "
+          + "para conectar tu báscula a tu red wifi. "
+          + "<span style=\"opacity:.85\">La red tarda unos 30 segundos en aparecer después de encender, "
+          + "y queda disponible 5 minutos. Mientras tanto, los datos que ves abajo son los últimos "
+          + "que alcanzó a enviar.</span>";
+    }
+    box.classList.add("on");
+}
+
 async function checkHeartbeat(){
     if (!window.currentDeviceId) return;
     try {
@@ -2762,9 +2839,15 @@ async function checkHeartbeat(){
         if (!data?.length){
             dot.className="hb-dot offline"; txt.innerText="Sin datos";
             dp.style.background="var(--red)"; dpt.innerText="Sin señal";
-            if(hdD) hdD.style.background="var(--red)"; if(hdS) hdS.innerText="Sin señal"; return;
+            if(hdD) hdD.style.background="var(--red)"; if(hdS) hdS.innerText="Sin señal";
+            /* Sin NINGUNA fila: o la bascula nunca reporto, o es una recien
+               instalada. No es lo mismo que "perdio la red" y no corresponde
+               mandar a nadie a apagar y encender. */
+            avisoRedPerdida(null);
+            return;
         }
         const min = (Date.now() - _fechaUTC(data[0].created_at).getTime()) / 60000;
+        avisoRedPerdida(min);
         // v80.77: firmware solo envía al superar umbral de consumo (sin heartbeat horario).
         // Umbrales ajustados: < 24h = activo, < 7 días = sin actividad reciente, ≥ 7d = sin señal.
         const hrsAgo = Math.round(min / 60);
@@ -2774,9 +2857,13 @@ async function checkHeartbeat(){
             dp.style.background="var(--green)"; dpt.innerText="Conectado";
             if(hdD) hdD.style.background="var(--green)"; if(hdS) hdS.innerText="Conectado";
         } else if (min < 10080){
-            dot.className="hb-dot warning"; txt.innerText=`Sin consumo ${hrsAgo}h`;
-            dp.style.background="var(--orange)"; dpt.innerText=`Sin consumo ${hrsAgo}h`;
-            if(hdD) hdD.style.background="var(--orange)"; if(hdS) hdS.innerText=`Sin consumo ${hrsAgo}h`;
+            /* [p14] Antes decia "Sin consumo". El firmware manda un latido
+               diario aunque nadie gaste gas, asi que pasado ese dia el silencio
+               NO es falta de consumo: es falta de contacto. El rotulo viejo
+               tranquilizaba justo cuando habia que preocuparse. */
+            dot.className="hb-dot warning"; txt.innerText=`Sin contacto ${hrsAgo}h`;
+            dp.style.background="var(--orange)"; dpt.innerText=`Sin contacto ${hrsAgo}h`;
+            if(hdD) hdD.style.background="var(--orange)"; if(hdS) hdS.innerText=`Sin contacto ${hrsAgo}h`;
         } else {
             dot.className="hb-dot offline"; txt.innerText=`Sin señal ${daysAgo}d`;
             dp.style.background="var(--red)"; dpt.innerText=`Sin señal ${daysAgo}d`;
@@ -3586,21 +3673,72 @@ async function updateAll(){
         if (lrEl) lrEl.innerText = "Agrega ?device=XX:XX:XX:XX:XX:XX a la URL";
         return;
     }
+    /* ═══ DEFECTO [p15 2026-09-23] · EL PANEL SE TRABABA PARA SIEMPRE ═══════
+       Este bloque tenia dos fallas que se potenciaban.
+
+       1. EL CERROJO QUEDABA ECHADO. El `return` de aqui abajo estaba ANTES del
+          try/finally que devuelve `_updateAllRunning` a false. O sea que la
+          primera vez que esta consulta no respondia —una caida de red de dos
+          segundos basta— la bandera se quedaba en true, y a partir de ahi
+          TODAS las llamadas siguientes a updateAll() morian en el guardia de
+          la primera linea. El panel quedaba congelado en "Dispositivo no
+          encontrado" y no volvia solo aunque la bascula reapareciera: habia
+          que recargar la pagina, y nada en pantalla lo insinuaba.
+
+       2. EL ERROR SE TRAGABA. Se desestructuraba solo `data`, nunca `error`.
+          Un fallo de red, un 401 o un permiso denegado daban data=null, y el
+          panel acusaba "MAC no registrada. Verifica la URL." — mandando a la
+          persona a revisar la URL cuando la URL estaba perfecta. Un mensaje
+          que culpa a quien lee del problema equivocado es peor que no decir
+          nada: gasta su tiempo en el lugar incorrecto.
+
+       Ahora se distingue lo que de verdad son dos casos distintos: la consulta
+       respondio y no hay fila (la MAC no existe), o la consulta no respondio
+       (no sabemos nada). Y el cerrojo se suelta siempre. */
     if (!window._authOk) {
-        const { data: authData } = await db.from("devices")
+        const { data: authData, error: authErr } = await db.from("devices")
             .select("device_id").eq("device_mac", device).maybeSingle();
-        if (!authData){
-            document.getElementById("gauge-pct").innerText = "Dispositivo no encontrado";
-            if (lrEl) lrEl.innerText = "MAC no registrada. Verifica la URL.";
+        if (authErr || !authData){
+            window._updateAllRunning = false;   // el cerrojo SIEMPRE se suelta
+            const g = document.getElementById("gauge-pct");
+            if (authErr){
+                console.warn("[auth devices]", authErr);
+                window._authFallo = true;
+                if (g) g.innerText = "Sin conexión";
+                if (lrEl) lrEl.innerText = "No se pudo consultar el equipo ("
+                    + (authErr.code || authErr.message || "error") + "). Se reintenta solo.";
+            } else {
+                if (g) g.innerText = "Dispositivo no encontrado";
+                if (lrEl) lrEl.innerText = "Esta MAC no está registrada. Verifica la URL.";
+            }
             return;
+        }
+        /* Si veniamos de un fallo hay que BORRAR lo que se dijo. Un "Sin
+           conexión" que se queda pegado despues de reconectar es la misma clase
+           de mentira que el mensaje al que reemplazo: la pantalla afirma algo
+           que dejo de ser cierto, y quien lo lee deja de creerle al resto. */
+        if (window._authFallo){
+            window._authFallo = false;
+            const g2 = document.getElementById("gauge-pct");
+            if (g2 && /Sin conexión/.test(g2.innerText)) g2.innerText = "—";
+            if (lrEl && /No se pudo consultar/.test(lrEl.innerText)) lrEl.innerText = "Actualizando…";
         }
         window._authOk = true;
     }
     try {
         if (!window.currentDeviceId){
-            const { data: dd } = await db.from("devices")
+            const { data: dd, error: ddErr } = await db.from("devices")
                 .select("device_id, current_cycle, empty_weight, full_weight")
                 .filter("device_mac","eq",device).maybeSingle();
+            /* [p15] Mismo criterio que arriba: una consulta que no respondio no
+               es un equipo sin registrar. Aqui el cerrojo si se suelta —este
+               return va dentro del try— pero el mensaje mentia igual. */
+            if (ddErr){
+                console.warn("[devices]", ddErr);
+                if (lrEl) lrEl.innerText = "No se pudo leer el equipo ("
+                    + (ddErr.code || ddErr.message || "error") + "). Se reintenta solo.";
+                return;
+            }
             if (!dd){ if(lrEl) lrEl.innerText="Dispositivo no registrado en Supabase"; return; }
             window.currentDeviceId = dd.device_id;
             window.currentCycle    = dd.current_cycle || 1;
