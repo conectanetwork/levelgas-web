@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p15-panel-no-se-traba-20260923">
+<meta name="lg-build" content="p16-bateria-usb-y-edad-20260923">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2462,18 +2462,56 @@ const BAT_CRIT_V = 3.70;
    sensor_data.battery_voltage, sin diferencia. */
 const BAT_CAL_FACTOR = 1.000;
 const BAT_CAL_OFFSET = 0.000;
+/* ═══ [p16 2026-09-23] DOS MENTIRAS DE LA TARJETA DE BATERÍA ════════════════
+   1. UN 100% QUE NO ES UNA PILA LLENA. El pack son tres pilas: 4,80 V a tope
+      (BAT_MAX). Cuando el equipo esta enchufado al USB el riel es de 5 V y
+      llega un 5,30 V, o sea POR ENCIMA del maximo fisico. El porcentaje se
+      recortaba a 100 y la tarjeta mostraba una pila verde y llena. En fabrica
+      eso es peor que un error: alguien puede despachar un equipo con las pilas
+      gastadas porque la pantalla decia 100%. Una lectura por encima del
+      maximo del pack no es una pila llena, es OTRA fuente de energia, y ahora
+      se dice con esa palabra.
+
+   2. UNA CIFRA SIN EDAD SE LEE COMO "AHORA". El equipo solo reporta cuando el
+      peso se mueve 250 g o cuando toca el latido diario, asi que este numero
+      puede tener horas. Mostrarlo igual que uno recien llegado hace que la
+      pantalla afirme un presente que no le consta. Pasadas 2 h se dice cuanto
+      hace, que es justo cuando la diferencia empieza a importar. */
+const BAT_V_EXTERNA = 4.95;   // por encima del pack lleno (4,80) → no es pila
+
+function _edadLectura(){
+    const t = window._ultimaLecturaMs;
+    if (!t) return "";
+    const h = (Date.now() - t) / 3600000;
+    if (h < 2) return "";
+    return h < 48 ? " · hace " + Math.round(h) + " h"
+                  : " · hace " + Math.round(h / 24) + " d";
+}
+
 function updateBattery(v){
     if (!v || isNaN(v)) return;
     v = v * BAT_CAL_FACTOR + BAT_CAL_OFFSET;
     window._batV = v;
+    const bar = document.getElementById("bat-level");
+    const txt = document.getElementById("bat-text");
+
+    if (v > BAT_V_EXTERNA){
+        bar.setAttribute("width", 27);
+        bar.setAttribute("fill", "#94a3b8");
+        txt.innerText = v.toFixed(2) + "V  USB" + _edadLectura();
+        txt.style.color = "var(--ink-3)";
+        document.getElementById("bat-low-badge").classList.remove("on");
+        document.getElementById("bat-crit-badge").classList.remove("on");
+        _updateBatStatus(v, 100);   // v alto ⇒ ninguna alarma se dispara
+        return;
+    }
+
     let pct = ((v - BAT_MIN) / (BAT_MAX - BAT_MIN)) * 100;
     pct = Math.max(0, Math.min(100, pct));
     const col = pct < 15 ? "#ef4444" : pct < 35 ? "#f59e0b" : "#10b981";
-    const bar = document.getElementById("bat-level");
     bar.setAttribute("width", Math.max((pct / 100) * 27, 0.5));
     bar.setAttribute("fill", col);
-    const txt = document.getElementById("bat-text");
-    txt.innerText = v.toFixed(2) + "V  " + pct.toFixed(0) + "%";
+    txt.innerText = v.toFixed(2) + "V  " + pct.toFixed(0) + "%" + _edadLectura();
     txt.style.color = col;
     document.getElementById("bat-low-badge").classList.toggle("on", v <= BAT_WARN_V && v > BAT_CRIT_V);
     document.getElementById("bat-crit-badge").classList.toggle("on", v <= BAT_CRIT_V);
@@ -3589,6 +3627,7 @@ async function pollLatest(){
         document.getElementById("digital").innerText = net.toFixed(2);
         updateGauge(Math.max(0, pct));   // gauge puede superar 100%
         if (lrEl) lrEl.innerText = fmtDate(latest.created_at) + " (CLT)";
+        window._ultimaLecturaMs = _fechaUTC(latest.created_at).getTime();   // [p16]
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
         checkEarlyAlert(net);
         // Si llegó un dato más nuevo que el último del gráfico → actualizar gráfico ya
@@ -3843,6 +3882,7 @@ async function updateAll(){
             return;
         }
         const latest = data[0];
+        window._ultimaLecturaMs = _fechaUTC(latest.created_at).getTime();   // [p16]
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
         const net = _netoDe(latest, empty) ?? 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
