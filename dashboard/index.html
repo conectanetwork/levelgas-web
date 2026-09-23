@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p17-esperar-un-minuto-20260923">
+<meta name="lg-build" content="p18-ver-otra-bascula-20260923">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -268,6 +268,11 @@ header{
    dice cual de tus basculas estas mirando. */
 .dp-nombre{font-size:17px;font-weight:700;letter-spacing:.2px;margin-bottom:2px;word-break:break-word;line-height:1.2}
 .dp-mac-sub{font-size:11px;color:#64748b;font-family:monospace;letter-spacing:.3px;margin-bottom:5px;word-break:break-all}
+/* [p18] Discreto a propósito: se usa una vez cada mucho, y compite con
+   "Transferir mi LevelGas", que es la acción peligrosa de esta tarjeta. */
+.dp-cambiar{display:inline-flex;align-items:center;gap:5px;background:none;border:0;padding:0;
+  margin:0 0 7px;font:600 11px inherit;color:#0ea5e9;cursor:pointer;text-decoration:underline}
+.dp-cambiar:hover{color:#0369a1}
 .dp-status{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
 .dp-status .dot{width:7px;height:7px;border-radius:50%}
 .btn-replace-cyl{width:100%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;letter-spacing:.2px;transition:all .18s;box-shadow:0 2px 8px rgba(16,185,129,.28)}
@@ -562,6 +567,13 @@ header{
     <button id="access-submit" class="btn-modal primary reconnect-btn" onclick="procesarIngresoClave()">
       <i class="fas fa-lock-open"></i> Entrar
     </button>
+    <!-- [p18] Solo en modo "ver otra báscula". Este modal no tenía salida, y sin
+         esto un clic por error dejaba al cliente encerrado hasta recargar. -->
+    <button id="access-cancelar" onclick="cancelarCambioEquipo()"
+            style="display:none;background:none;border:0;color:var(--muted);font-size:13px;
+                   text-decoration:underline;cursor:pointer;margin-top:12px;padding:4px">
+      Cancelar y volver a mi báscula
+    </button>
     <!-- PARCHE [seguridad 2026-08-22]: enlace de recuperación, visible solo en modo "verificar" -->
     <button id="access-forgot" onclick="abrirRecuperacion()"
             style="display:none;background:none;border:0;color:var(--primary);font-size:13px;
@@ -806,6 +818,11 @@ header{
         </div>
         <div class="dp-nombre" id="dp-nombre" title="Báscula que estás viendo">—</div>
         <div class="dp-mac-sub" id="dp-mac" title="MAC del dispositivo">——:——:——</div>
+        <!-- [p18 2026-09-23] ver otra báscula sin depender de la URL -->
+        <button type="button" id="btn-cambiar-equipo" class="dp-cambiar"
+                onclick="cambiarEquipo()" title="Abrir el dashboard de otra báscula">
+          <i class="fas fa-right-left"></i> Ver otra báscula
+        </button>
         <div id="dp-wifi-row" style="display:none;align-items:center;gap:5px;margin-top:3px;margin-bottom:2px">
           <i class="fas fa-wifi" style="font-size:10px;color:#64748b"></i>
           <span id="dp-wifi-ssid" style="font-size:11px;color:#64748b;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px" title="Red WiFi del dispositivo">—</span>
@@ -1269,7 +1286,12 @@ function _modoCrearClave(){
 }
 function _prepararModalIngreso(reconexion=false){
     const crear = _modoCrearClave();
-    const sinDispositivo = !device;
+    /* [p18] El campo MAC aparecia SOLO cuando no habia ningun equipo guardado.
+       Una vez guardado el primero no habia forma de ver otro: la pestaña del
+       sitio abre /dashboard/ sin parametros, el navegador recuerda la MAC, y el
+       cliente queda encerrado en esa bascula. Ahora tambien se muestra cuando
+       se pide explicitamente cambiar. */
+    const sinDispositivo = !device || !!window._modoCambioEquipo;
     const msg = document.getElementById('access-msg');
     const label = document.getElementById('access-label');
     const input = document.getElementById('access-input');
@@ -1283,13 +1305,17 @@ function _prepararModalIngreso(reconexion=false){
     if (msg){
         msg.textContent = reconexion
             ? ''
-            : (sinDispositivo
-                ? 'Ingresa el identificador MAC de tu equipo y su clave de acceso.'
-                : (crear ? 'Crea una nueva clave para activar este dashboard.' : 'Ingresa tu clave para acceder al dashboard.'));
+            : (window._modoCambioEquipo
+                ? 'Escribe la MAC de la báscula que quieres ver y su clave de acceso.'
+                : (sinDispositivo
+                    ? 'Ingresa el identificador MAC de tu equipo y su clave de acceso.'
+                    : (crear ? 'Crea una nueva clave para activar este dashboard.' : 'Ingresa tu clave para acceder al dashboard.')));
         msg.style.display = reconexion ? 'none' : 'block';
     }
     if (deviceWrap) deviceWrap.style.display = (!reconexion && sinDispositivo) ? 'block' : 'none';
-    if (deviceInput && sinDispositivo) deviceInput.value = '';
+    /* En modo cambio se precarga la MAC actual: casi siempre hay que editar dos
+       caracteres, no escribir diecisiete. */
+    if (deviceInput && sinDispositivo) deviceInput.value = window._modoCambioEquipo ? (device || '') : '';
     if (label) label.textContent = sinDispositivo ? 'Clave de acceso' : (crear ? 'Nueva clave de acceso' : 'Clave de acceso');
     if (inputWrap) inputWrap.style.display = reconexion ? 'none' : 'block';
     if (input){
@@ -1298,6 +1324,8 @@ function _prepararModalIngreso(reconexion=false){
         input.autocomplete = (!sinDispositivo && crear) ? 'new-password' : 'current-password';
     }
     if (confirmWrap) confirmWrap.style.display = (!reconexion && !sinDispositivo && crear) ? 'block' : 'none';
+    const cancelar = document.getElementById('access-cancelar');   // [p18]
+    if (cancelar) cancelar.style.display = (!reconexion && window._modoCambioEquipo) ? 'block' : 'none';
     if (confirm) confirm.value = '';
     /* PARCHE [seguridad 2026-08-22]: correo de recuperación, obligatorio al
        CREAR la clave y solo si el equipo no tiene ya uno registrado. */
@@ -1322,6 +1350,43 @@ function _prepararModalIngreso(reconexion=false){
             : (crear ? '<i class="fas fa-key"></i> Guardar clave y entrar' : '<i class="fas fa-lock-open"></i> Entrar');
     }
 }
+/* ═══════════════════════════════════════════════════════════════════════════
+   VER OTRA BÁSCULA  [p18 2026-09-23]
+   ───────────────────────────────────────────────────────────────────────────
+   La pestaña "Acceso a mi dashboard" del sitio abre /dashboard/ SIN parametros.
+   Con una MAC ya guardada en el navegador, el dashboard abria siempre esa y no
+   habia ninguna via para ver otra: ni un boton, ni un campo. La unica salida
+   era editar la URL a mano, que no es una instruccion que se le pueda dar a un
+   cliente. Un tecnico con dos equipos en la mesa quedaba igual de atrapado.
+
+   Se resuelve aqui y no en la pagina de inicio a proposito: asi funciona
+   tambien cuando se llega por el QR, por un favorito o por el historial.
+
+   NO se borra la clave guardada del equipo actual. Esta namespaciada por MAC
+   (ver lgClave), asi que cada bascula conserva la suya y volver atras no obliga
+   a escribirla de nuevo. Lo que SI se limpia es la copia de sessionStorage, que
+   NO esta namespaciada: si quedara, _claveLocal() se la pasaria a la bascula
+   nueva y el dashboard intentaria entrar con la clave de otra. */
+window.cancelarCambioEquipo = function(){
+    window._modoCambioEquipo = false;
+    const m = document.getElementById('modal-acceso');
+    /* Solo se cierra si ya habia acceso concedido a la bascula actual. Si el
+       modal estaba abierto porque HACIA FALTA la clave, cerrarlo dejaria un
+       dashboard vacio y sin explicacion: ahi se vuelve al modal normal. */
+    if (window._accessGranted && m){ m.classList.remove('open'); m.style.display = 'none'; }
+    else abrirModalIngreso(false);
+};
+
+window.cambiarEquipo = function(){
+    window._modoCambioEquipo = true;
+    window._accessKeySession = '';
+    try {
+        sessionStorage.removeItem('access_key');
+        sessionStorage.removeItem('activation_key');
+    } catch(e){ console.warn('[cambiarEquipo:sessionStorage]', e); }
+    abrirModalIngreso(false);
+};
+
 function abrirModalIngreso(reconexion=false){
     _prepararModalIngreso(reconexion);
     const m = document.getElementById('modal-acceso');
@@ -1485,7 +1550,7 @@ async function resetClaveAcceso(){
     abrirModalIngreso(false);
 }
 async function procesarIngresoClave(){
-    if (!device){
+    if (!device || window._modoCambioEquipo){   // [p18]
         const deviceInput = document.getElementById('device-input');
         const accessInput = document.getElementById('access-input');
         const valorMac = (deviceInput?.value || '').trim().toUpperCase();
@@ -1504,8 +1569,11 @@ async function procesarIngresoClave(){
         localStorage.setItem('device_mac', valorMac);
         sessionStorage.setItem('access_key', claveProvisional);
         sessionStorage.setItem('activation_key', claveProvisional);
+        window._modoCambioEquipo = false;
         const next = new URL(window.location.href);
         next.searchParams.set('device', valorMac);
+        /* replace() y no href=: no tiene sentido que "atrás" devuelva a la
+           bascula anterior con la clave de la nueva en sessionStorage. */
         window.location.replace(next.toString());
         return;
     }
