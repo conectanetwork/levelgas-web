@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d9-color-base-id-20260922">
+<meta name="lg-build" content="d10-rotulo-central-20260923">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -88,7 +88,7 @@
      —que es el encoding secundario obligatorio— caeria de 3,6:1 a 2,4:1 y
      dejaria de leerse. Por eso el pin conserva los valores medidos contra el
      mapa y solo la interfaz cambia de tono. */
-  --pin-celeste:#1a7fd0; --pin-gris:#898781;
+  --pin-celeste:#1a7fd0; --pin-gris:#898781; --pin-acento:#016b66;
   --plano:#f4f4f2; --sup:#fcfcfb; --sup-2:#eeeeec;
   --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
   --borde:#dedcd6;
@@ -287,23 +287,42 @@ header .marca{font-size:16px;margin:0}
 }
 .pin-rojo{background:var(--rojo)} .pin-naranjo{background:var(--naranjo);color:#4a2c00}
 .pin-verde{background:var(--pin-celeste)} .pin-gris{background:var(--pin-gris)}
-.pin-sel{outline:3px solid var(--acento);outline-offset:2px}
+.pin-sel{outline:3px solid var(--pin-acento);outline-offset:2px}
 .pin{position:relative}
 /* El numero de orden va en una chapa aparte, no reemplaza a los dias: los dias
    son lo que sostiene el significado cuando el color no se distingue. */
 .pin-orden{
   position:absolute;top:-9px;left:-9px;min-width:19px;height:19px;padding:0 3px;
-  border-radius:999px;background:var(--acento);color:#fff;border:2px solid #fff;
+  border-radius:999px;background:var(--pin-acento);color:#fff;border:2px solid #fff;
   font-size:11px;font-weight:800;line-height:15px;text-align:center;font-style:normal;
 }
 /* La base NO es un circulo. Un circulo de color en este mapa significa estado
    del cilindro, y la base no es un cliente. */
 .pin-base{
-  width:30px;height:30px;border-radius:7px;background:var(--acento);
+  width:30px;height:30px;border-radius:7px;background:var(--pin-acento);
   border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);
   display:flex;align-items:center;justify-content:center;color:#fff;
 }
 .pin-base svg{width:17px;height:17px}
+
+/* ── EL ROTULO DE LA CENTRAL ────────────────────────────────────────────────
+   La casita sola no dice de quien es. En una pantalla que alguien mira de
+   reojo entre dos entregas, el punto de salida tiene que nombrarse; el globo
+   emergente no sirve para eso porque exige un clic.
+
+   Va pegado a la derecha del icono y no arriba, para no tapar los pines de
+   clientes que casi siempre quedan por encima. El fondo es solido y el borde
+   blanco porque debajo pasa cualquier cosa: una avenida amarilla, un parque
+   verde, un rio. Un rotulo sin fondo se vuelve ilegible sobre media ciudad. */
+.rotulo-base{
+  background:var(--pin-acento);color:#fff;border:2px solid #fff;
+  border-radius:7px;padding:3px 9px;
+  font:700 12px/1.3 inherit;letter-spacing:-.1px;
+  box-shadow:0 1px 4px rgba(0,0,0,.4);
+  white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;
+}
+/* Leaflet le pone una flecha al globo; aqui es un rotulo pegado, no un globo. */
+.rotulo-base::before{display:none !important}
 .barra-ruta{
   margin:0 16px 12px;padding:9px 13px;border-radius:10px;font-size:13px;
   background:var(--acento-suave);border:1.5px solid var(--acento);color:var(--ink);
@@ -880,6 +899,28 @@ function pintar(){
 
     dibujarBaseYRuta(porId);
     if (hayBase() && (RUTA || !puntos.length)) puntos.push([INFO.base_lat, INFO.base_lng]);
+    /* ── DEFECTO [d10 2026-09-23]: Leaflet medía el mapa una sola vez ────────
+       Leaflet guarda el tamaño del contenedor la primera vez que lo mira y no
+       vuelve a consultarlo salvo que se lo pidan o cambie el tamaño de la
+       ventana. iniciarMapa() corre ANTES de cargar(): en ese instante no hay
+       fichas ni lista de clientes, el contenedor todavia esta estirado, y esa
+       medida equivocada se queda para siempre.
+
+       Medido: el div mide 836×477 y Leaflet creia 834×608. Ciento treinta y un
+       pixeles de mas — un 27% del alto. Con esa altura falsa elegia zoom 14
+       donde correspondia 13, y un cliente quedaba fuera de la pantalla aunque
+       fitBounds hubiera hecho bien su cuenta.
+
+       Lo insidioso es que el mapa se ve perfecto: bien centrado, bien dibujado,
+       sin nada que delate el error. Solo falta un cliente, y nadie cuenta los
+       pines. Con invalidateSize() antes de encuadrar, el zoom baja a 13 y no
+       queda ninguno afuera.
+
+       Sin animacion a proposito: esto corre en cada pintar() —cada filtro, cada
+       tecla de la busqueda— y un mapa que se reacomoda solo todo el tiempo
+       marea mas de lo que ayuda. */
+    MAPA.invalidateSize({ animate: false, pan: false });
+
     /* El tope de zoom solo tiene sentido con UN punto: sin el, el mapa se
        acercaria hasta la vereda. Con dos o mas hay que dejar que fitBounds haga
        su trabajo — poniendole tope, un recorrido de 5 km no cabe en pantalla y
@@ -1306,12 +1347,28 @@ function pintarBarraRuta(){
 function dibujarBaseYRuta(porId){
     CAPA_RUTA.clearLayers();
     if (!hayBase()) return;
+    /* QUE DICE EL ROTULO DE LA CENTRAL
+       El nombre que la distribuidora le puso a su base manda: es el que usa
+       para hablar de ella («Planta Norte», «Bodega Franklin»), y una empresa
+       con dos centrales necesita distinguirlas en el mapa. Si no le puso
+       ninguno, cae al nombre de la empresa, que es mejor que un generico. La
+       ultima red es «Base de reparto», que al menos explica que hace ese
+       cuadrado ahi.
+       Se escapa: el nombre lo escribe una persona y Leaflet lo inserta como
+       HTML, no como texto. */
+    const rotulo = (INFO.base_nombre || INFO.nombre || 'Base de reparto');
+
     L.marker([INFO.base_lat, INFO.base_lng], {
         icon: L.divIcon({ className:'', html:'<div class="pin-base">' + CASA + '</div>',
                           iconSize:[30,30], iconAnchor:[15,15], popupAnchor:[0,-15] }),
-        title: (INFO.base_nombre || 'Base de reparto'),
+        title: rotulo,
         zIndexOffset: 500
-    }).addTo(CAPA_RUTA).bindPopup('<div class="pop-nom">' + esc(INFO.base_nombre || 'Base de reparto') + '</div>'
+    }).addTo(CAPA_RUTA)
+      .bindTooltip(esc(rotulo), {
+          permanent: true, direction: 'right', offset: [13, 0],
+          className: 'rotulo-base', opacity: 1
+      })
+      .bindPopup('<div class="pop-nom">' + esc(rotulo) + '</div>'
         + '<div style="font-size:12px;color:var(--ink-2)">Punto de salida del reparto</div>'
         + '<div class="pop-acciones">'
         +   '<button class="btn" onclick="renombrarBase()">Cambiar nombre</button>'
