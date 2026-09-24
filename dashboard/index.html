@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p18-ver-otra-bascula-20260923">
+<meta name="lg-build" content="p19-peso-lleno-manual-20260923">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2153,7 +2153,7 @@ function saveConfig(){
     LS.setItem('full',  f);
     if (window._cambio === true){
         db.from('devices').update({ empty_weight: e }).eq('device_mac', device)
-          .then(() => registerCylinderChange());
+          .then(() => registerCylinderChange(f));   // [p19]
     } else {
         db.from('devices')
           .update({ empty_weight: e, full_weight: f })
@@ -2179,7 +2179,7 @@ function saveConfigAdv(){
     LS.setItem('full',  f);
     if (window._cambio === true){
         db.from('devices').update({ empty_weight: e }).eq('device_mac', device)
-          .then(() => registerCylinderChange());
+          .then(() => registerCylinderChange(f));   // [p19] el peso lleno escrito a mano
     } else {
         db.from('devices')
           .update({ empty_weight: e, full_weight: f })
@@ -2425,7 +2425,26 @@ function escapeHtml(str){
 /* ═══════════════════════════════════════════
    CAMBIO DE CILINDRO
 ═══════════════════════════════════════════ */
-async function registerCylinderChange(){
+/* ── DEFECTO [p19 2026-09-23]: la configuración manual perdía el peso lleno ──
+   Esta función nació para el camino GUIADO, donde la persona elige un tipo de
+   cilindro (`_selectedGasNeto`: 5, 11, 15, 45 kg) y escribe la tara. Con esos
+   dos datos el peso lleno se DEDUCE, y por eso aquí no se leía de ningún campo.
+
+   En la configuración MANUAL no hay tipo de cilindro: `_selectedGasNeto` vale 0,
+   la deducción no aplica, y el `else` caía en `fw` — la última lectura del
+   sensor. O sea que el peso lleno que la persona acababa de escribir se tiraba
+   y se guardaba el peso bruto que había en la balanza en ese momento. Se
+   escribía en devices, en localStorage y en el campo oculto, así que al volver
+   a abrir el modal reaparecía ese número: parecía que el campo "no dejaba"
+   escribir, cuando en realidad sí dejaba y después lo pisaba.
+
+   Solo ocurría al responder "Sí, cambié el cilindro": el camino "No, solo
+   actualizo" guarda `full_weight` directo y siempre funcionó. Por eso el
+   defecto es intermitente según qué botón se apriete.
+
+   Ahora el peso lleno entra como parámetro. Si viene, manda; si no, se conserva
+   la deducción de siempre para el camino guiado. */
+async function registerCylinderChange(fullManual = null){
     if (!window.currentDeviceId){ console.warn('[cylinder] Dispositivo no disponible'); return; }
     try {
         const gasNeto   = window._selectedGasNeto || 0;
@@ -2441,8 +2460,15 @@ async function registerCylinderChange(){
             fw = _lecturaPlausible(wRaw) ? wRaw : null;   // no avisar sobre una lectura fallida
         }
         const warnEl = document.getElementById('cfg-weight-warn');
-        if (fw !== null && gasNeto > 0 && taraInput > 0){
-            const expectedWeight = +(gasNeto + taraInput).toFixed(2);
+        /* [p19] La comprobación contra lo que mide la balanza vale igual en el
+           camino manual: si alguien escribe 5,0 y el equipo lee 7,2, conviene
+           decirlo ANTES de guardar. Antes solo se hacía si había tipo de
+           cilindro elegido, así que el camino manual guardaba sin chistar. */
+        const esperadoManual = (typeof fullManual === 'number' && fullManual > 0) ? fullManual : null;
+        if (fw !== null && (esperadoManual !== null || (gasNeto > 0 && taraInput > 0))){
+            const expectedWeight = esperadoManual !== null
+                ? +esperadoManual.toFixed(2)
+                : +(gasNeto + taraInput).toFixed(2);
             const diff = Math.abs(fw - expectedWeight);
             if (diff > 0.5){
                 warnEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> <strong>Discrepancia detectada:</strong> ` +
@@ -2465,7 +2491,12 @@ async function registerCylinderChange(){
         document.getElementById("recambio-box")?.classList.remove("on");
         const { data: dd } = await db.from("devices")
             .select("current_cycle").eq("device_id", window.currentDeviceId).single();
-        const newFullWeight = (gasNeto > 0 && taraInput > 0) ? +(gasNeto + taraInput).toFixed(2) : (fw ?? 0);
+        const fManual = (typeof fullManual === 'number' && isFinite(fullManual) && fullManual > 0)
+                        ? +fullManual.toFixed(3) : null;
+        const newFullWeight = fManual !== null
+            ? fManual                                                    // [p19] lo que escribió la persona
+            : ((gasNeto > 0 && taraInput > 0) ? +(gasNeto + taraInput).toFixed(2)
+                                              : (fw ?? 0));
         // Incremento seguro: solo sube el ciclo si el actual ya tiene datos del sensor.
         // Si el ciclo está vacío (ESP32 aún no envió nada), devuelve ok:false y no incrementa.
         const { data: cycleResult } = await db.rpc('safe_increment_cycle', {
