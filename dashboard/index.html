@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p19-peso-lleno-manual-20260923">
+<meta name="lg-build" content="p20-calibracion-en-espera-20260924">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2518,7 +2518,15 @@ async function registerCylinderChange(fullManual = null){
         document.getElementById("full-weight").value = newFullWeight;
         window._pendingCycle = nc;
         document.getElementById('modal-settings').classList.remove('open');
-        showResetInstruction(gasNeto);
+        /* [p20] El panel de calibración mostraba "Neto estándar 0.00 kg" en la
+           configuración manual, por la misma razón que el peso lleno volvía al
+           bruto: aquí se pasaba `gasNeto`, que vale 0 cuando nadie eligió tipo
+           de cilindro. El patrón contra el que comparar es el gas que declaró
+           la persona: lleno menos tara. */
+        const netoEstandar = (fManual !== null && taraInput > 0)
+            ? +Math.max(0, fManual - taraInput).toFixed(2)
+            : gasNeto;
+        showResetInstruction(netoEstandar);
     } catch(e){ console.error('[cylinder]', e); }
 }
 /* ═══════════════════════════════════════════
@@ -3331,8 +3339,20 @@ function _renderCalPanel(d){
         diffEl.className   = 'cal-val diff-pending';
         if (noteEl) noteEl.style.display = 'none';
     } else if (d.real == null){
-        realEl.textContent = '⏳ Esperando primera medición…';
+        /* [p20] "Esperando primera medición…" a secas no decía cuánto ni de
+           qué dependía, y la báscula puede tardar 15 minutos en reportar. */
+        realEl.textContent = '⏳ Esperando medición — pulse RESET';
+        realEl.title       = 'La báscula envía sola cada 15 minutos. '
+                           + 'Pulsando RESET el dato llega en unos 30 segundos.';
         realEl.className   = 'cal-val waiting';
+        diffEl.textContent = '—';
+        diffEl.className   = 'cal-val diff-pending';
+        if (noteEl) noteEl.style.display = 'none';
+    } else if (!(d.std > 0)){
+        /* [p20] Calibraciones guardadas antes de este arreglo llevan std = 0.
+           Comparar contra 0 daría una "diferencia" igual al cilindro entero. */
+        realEl.textContent = d.real.toFixed(2) + ' kg';
+        realEl.className   = 'cal-val real';
         diffEl.textContent = '—';
         diffEl.className   = 'cal-val diff-pending';
         if (noteEl) noteEl.style.display = 'none';
@@ -3412,14 +3432,35 @@ function showCalibrationResult(stdKg){
     _renderCalPanel(calData);
     _startCalPolling();
 }
+/* [p20] Un panel de calibración está EN ESPERA cuando tiene un patrón guardado
+   pero todavía no la medición con la que compararlo. Da igual el valor de
+   pending_reboot: ese campo dice si falta apretar RESET, no si llegó el dato. */
+function _calEnEspera(d){
+    return !!d && d.std != null && d.real == null;
+}
+/* [p20] Antes: setInterval de 5 s para siempre. La báscula reporta cada 15 min
+   —y solo si el peso se movió 0,25 kg—, así que esos 5 s significaban cientos
+   de consultas para un dato que puede tardar un cuarto de hora. Ahora va rápido
+   el primer minuto, que es cuando de verdad puede llegar si apretaron RESET, y
+   después se relaja a 30 s. No se detiene solo: mientras falte la medición, el
+   panel tiene que poder resolverse. */
+const CAL_POLL_RAPIDO = 5000, CAL_POLL_LENTO = 30000, CAL_RAPIDO_MS = 60000;
 function _startCalPolling(){
     _stopCalPolling();
+    window._calPollDesde = Date.now();
     console.log('[cal] Iniciando polling por primer dato real...');
-    window._calPollInterval = setInterval(_pollForFirstReading, 5000);
+    const tic = async () => {
+        await _pollForFirstReading();
+        if (!window._calPollInterval) return;            // se resolvió o se detuvo
+        const lento = (Date.now() - window._calPollDesde) > CAL_RAPIDO_MS;
+        const espera = lento ? CAL_POLL_LENTO : CAL_POLL_RAPIDO;
+        window._calPollInterval = setTimeout(tic, espera);
+    };
+    window._calPollInterval = setTimeout(tic, CAL_POLL_RAPIDO);
 }
 function _stopCalPolling(){
     if (window._calPollInterval){
-        clearInterval(window._calPollInterval);
+        clearTimeout(window._calPollInterval);
         window._calPollInterval = null;
     }
 }
@@ -3438,11 +3479,16 @@ async function _pollForFirstReading(){
     // la calibración (el reloj del ESP32 y del dashboard pueden diferir levemente).
     const margenMs = 5 * 60 * 1000;
     const empty   = parseFloat(LS.getItem('empty') || 0);
-    const cycle   = window.currentCycle || 1;
+    /* [p20] Se filtraba por cycle_id = window.currentCycle. Cuando
+       safe_increment_cycle devuelve ok:false —el ciclo anterior no tenía datos
+       confirmados— el contador NO sube, y si la báscula etiqueta su lectura con
+       otro número, esta consulta no encuentra nada nunca y el panel se queda
+       esperando de por vida. Lo que de verdad define "la primera medición
+       después del cambio" es la hora, no la etiqueta, y esa comprobación ya
+       estaba aquí abajo. */
     try {
         const { data } = await db.from('sensor_data').select('weight,created_at,empty_weight')
             .eq('device_id', window.currentDeviceId)
-            .eq('cycle_id', cycle)
             .order('created_at', { ascending: false }).limit(1);
         if (!data?.length) return;
         const readingTime = _fechaUTC(data[0].created_at).getTime();
@@ -3480,7 +3526,15 @@ function _loadCalPanel(){
         try {
             const d = JSON.parse(raw);
             _renderCalPanel(d);
-            if (d.pending_reboot) _startCalPolling();
+            /* [p20] El panel quedaba congelado en "Esperando primera medición…"
+               para siempre. La condición era `pending_reboot`, pero
+               confirmResetPressed() lo pone en false en el mismo momento en que
+               deja `real` en null —justo el estado de espera—, así que al
+               recargar la página el sondeo NO se reanudaba y el panel ya nunca
+               se enteraba de la medición que sí llegaba.
+               La condición correcta es la misma que usa _pollForFirstReading()
+               para detenerse: falta el dato real. */
+            if (_calEnEspera(d)) _startCalPolling();
         } catch(e){}
     }
 
@@ -3501,7 +3555,7 @@ function _loadCalPanel(){
           if (remoteDate >= localDate){
               LS.setItem('cal_data', JSON.stringify(remote));
               _renderCalPanel(remote);
-              if (remote.pending_reboot) _startCalPolling();
+              if (_calEnEspera(remote)) _startCalPolling();   // [p20]
           }
       });
 }
