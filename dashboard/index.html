@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p21-reset-en-vez-de-apagar-20260924">
+<meta name="lg-build" content="p22-sin-luz-ni-sonido-20260924">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -5113,7 +5113,12 @@ if ('serviceWorker' in navigator){
       <span>2️⃣</span> Presiónelo <strong>una vez</strong> y suéltelo
     </div>
     <div class="reset-step" style="margin-bottom:16px">
-      <span>3️⃣</span> El equipo parpadeará y se reconectará en ~30 seg
+      <!-- [p22] Decía "El equipo parpadeará y se reconectará". La báscula no
+           tiene LED: no hay nada que parpadee, así que el cliente se quedaba
+           esperando una señal que nunca llega y creía que no había funcionado.
+           La única señal real de que el RESET surtió efecto es el dato nuevo
+           apareciendo en este mismo panel. -->
+      <span>3️⃣</span> No hay luz ni sonido: la señal es el peso nuevo apareciendo aquí
     </div>
     <div style="font-size:11px;color:#92400e;background:#fff7ed;border-radius:6px;padding:8px 10px;margin-bottom:14px;text-align:left;line-height:1.5">
       ⚠️ Presione RESET <strong>solo una vez</strong>. El equipo se reconecta al WiFi y envía su medición
