@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p20-calibracion-en-espera-20260924">
+<meta name="lg-build" content="p21-reset-en-vez-de-apagar-20260924">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2955,18 +2955,17 @@ function avisoRedPerdida(minutosDesdeUltimoDato){
           + v.toFixed(2) + " V).</b>"
           + "Lo más probable es que necesite pilas nuevas: cuando quedan muy bajas, el equipo deja de "
           + "usar el wifi para no apagarse a medio envío. Cambia las pilas y espera unos minutos. "
-          + "Si después de eso sigue sin reportar, apaga el equipo, <b>espera un minuto completo</b>, "
-          + "enciéndelo, y conéctate a la red <b>LevelGas</b> que se genera para volver a conectar "
-          + "tu báscula a tu wifi.";
+          + "Si después de eso sigue sin reportar, pulsa <b>una vez</b> el botón <b>RESET</b> del "
+          + "lateral y conéctate a la red <b>LevelGas</b> que aparecerá, para devolverle tu wifi.";
     } else {
         msg.innerHTML =
             "<b class=\"t\">Tu báscula perdió la red y lleva " + cuanto + " sin reportar.</b>"
-          + "Apaga tu equipo, <b>espera un minuto completo</b>, y vuelve a encenderlo. "
-          + "Luego conéctate a la red <b>LevelGas</b> que se genera, para conectar tu báscula a tu wifi. "
-          + "<span style=\"opacity:.85\">El minuto de espera es necesario: si lo enciendes antes, "
-          + "la báscula no alcanza a darse cuenta de que la apagaste y no crea la red. "
-          + "Después de encender tarda unos 30 segundos en aparecer, y dura 5 minutos. "
-          + "Mientras tanto, los datos que ves abajo son los últimos que alcanzó a enviar.</span>";
+          + "Pulsa <b>una vez</b> el botón <b>RESET</b> del lateral del equipo. En unos segundos "
+          + "aparecerá la red <b>LevelGas</b>: conéctate a ella desde tu teléfono para devolverle tu wifi. "
+          + "<span style=\"opacity:.85\">La red dura 5 minutos. Si no llegara a aparecer, apaga el equipo, "
+          + "espera un minuto completo y enciéndelo — encenderlo antes no sirve, porque la báscula no "
+          + "alcanza a darse cuenta de que la apagaste. Mientras tanto, los datos de abajo son los "
+          + "últimos que alcanzó a enviar.</span>";
     }
     box.classList.add("on");
 }
@@ -5117,8 +5116,9 @@ if ('serviceWorker' in navigator){
       <span>3️⃣</span> El equipo parpadeará y se reconectará en ~30 seg
     </div>
     <div style="font-size:11px;color:#92400e;background:#fff7ed;border-radius:6px;padding:8px 10px;margin-bottom:14px;text-align:left;line-height:1.5">
-      ⚠️ Presione RESET <strong>solo una vez</strong>. El equipo enviará su primera medición automáticamente después de reconectarse al WiFi.<br>
-      La calibración se completará en el dashboard en los próximos <strong>15 minutos</strong>.
+      ⚠️ Presione RESET <strong>solo una vez</strong>. El equipo se reconecta al WiFi y envía su medición
+      en unos <strong>30 segundos</strong>; la calibración se completará sola aquí en el panel.<br>
+      Si no presiona RESET, el equipo enviará igual en su próximo despertar, pero puede tardar una hora o más.
     </div>
     <button class="btn-reset-confirm" onclick="confirmResetPressed()">
       ✓ Ya presioné el botón RESET
