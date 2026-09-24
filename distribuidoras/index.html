@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d12-esperar-un-minuto-20260923">
+<meta name="lg-build" content="d13-reset-en-vez-de-apagar-20260924">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -1007,7 +1007,7 @@ function fila(f){
          +   '<div class="fila-nom">' + esc(f.nombre) + '</div>'
          +   '<div class="fila-dir">' + esc(f.direccion || 'Sin dirección') + (f.comuna ? ', ' + esc(f.comuna) : '') + '</div>'
          +   '<div class="fila-est">' + esc(textoEstado(f)) + sinUbic + '</div>'
-         +   (f.color === 'gris' ? '<div class="fila-aviso">Pídele que apague el equipo 1 minuto y lo encienda</div>' : '')
+         +   (f.color === 'gris' ? '<div class="fila-aviso">Pídele que pulse una vez el botón RESET del equipo</div>' : '')
          + '</div>'
          + '<div class="fila-dias" style="color:var(--' + esc(f.color) + ')">'
          +   esc(etiquetaDias(f)) + '<small>DÍAS</small></div>'
@@ -1064,13 +1064,15 @@ function instruccionSinContacto(f){
     const texto = bateriaBaja
         ? '<b>La última carga conocida era ' + Number(f.bateria_pct).toFixed(0) + ' %.</b> '
         + 'Con las pilas muy bajas el equipo deja de usar el wifi a propósito. '
-        + 'Pídele al cliente que cambie las pilas; si sigue sin reportar, que apague el equipo, '
-        + 'espere un minuto completo, lo encienda, y se conecte a la red <b>LevelGas</b> que se genera.'
+        + 'Pídele al cliente que cambie las pilas; si sigue sin reportar, que pulse <b>una vez</b> '
+        + 'el botón <b>RESET</b> del lateral y se conecte a la red <b>LevelGas</b> que aparecerá.'
         : '<b>El equipo perdió la red.</b> '
-        + 'Pídele al cliente que apague el equipo, <b>espere un minuto completo</b>, lo encienda, '
-        + 'y se conecte a la red <b>LevelGas</b> que se genera para reconectarlo a su wifi. '
-        + 'El minuto importa: con un apagón corto la báscula no alcanza a notarlo y no crea la red. '
-        + 'Después de encender tarda unos 30 segundos en aparecer y dura 5 minutos.';
+        + 'Pídele al cliente que pulse <b>una vez</b> el botón <b>RESET</b> del lateral del equipo: '
+        + 'en unos segundos aparece la red <b>LevelGas</b>, y conectándose a ella desde el teléfono '
+        + 'devuelve la báscula a su wifi. La red dura 5 minutos. '
+        + 'Si no apareciera, que apague el equipo, espere un minuto completo y lo encienda: con un '
+        + 'apagón corto la báscula no alcanza a notarlo y no crea la red. '
+        + 'Pulsar RESET con el wifi funcionando no hace daño — el equipo solo manda su peso al día.';
     return '<div class="pop-instr">' + texto + '</div>';
 }
 
