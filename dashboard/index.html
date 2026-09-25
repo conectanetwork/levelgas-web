@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p22-sin-luz-ni-sonido-20260924">
+<meta name="lg-build" content="p23-lectura-cero-20260925">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1955,6 +1955,24 @@ function _netoDe(row, tara){
     const t = Number.isFinite(parseFloat(tara)) ? parseFloat(tara) : 0;
     return Math.max(0, bruto - t);
 }
+/* [p23] La primera fila de la consulta no siempre sirve. La báscula envía 0,0 kg
+   cuando el HX711 no entrega dato —confirmado en terreno: con un cilindro de
+   31,2 kg encima llegaron 0,000 kg intercalados entre lecturas buenas—, y
+   _lecturaPlausible() los rechaza con razón.
+
+   El problema estaba en qué se hacía después: el código escribía
+   `_netoDe(latest, empty) ?? 0`, o sea que convertía el rechazo en un CERO y lo
+   mostraba como si fuera la medición. El cliente veía 0,00 kg y 0 % —cilindro
+   vacío— con el cilindro lleno delante.
+
+   Ahora se busca la última fila que sí sirve. Si ninguna de las recientes sirve,
+   se devuelve null y cada sitio decide: conservar el valor anterior, o seguir
+   esperando. Ninguno escribe un cero inventado. */
+function _ultimaValida(filas, tara){
+    if (!Array.isArray(filas)) return null;
+    for (const f of filas) if (_netoDe(f, tara) !== null) return f;
+    return null;
+}
 function fmtDate(iso){
     const d = toChileDate(iso);
     return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
@@ -3486,18 +3504,31 @@ async function _pollForFirstReading(){
        después del cambio" es la hora, no la etiqueta, y esa comprobación ya
        estaba aquí abajo. */
     try {
+        /* [p23] Antes se pedía una sola fila y se aceptaba fuese cual fuese. Si esa
+           fila era una lectura fallida —la báscula envía 0,0 kg cuando el HX711 no
+           entrega dato—, `_netoDe` devolvía null, el `?? 0` lo convertía en un cero
+           y ese cero se guardaba como si fuera la medición. El sondeo se detenía,
+           porque ya había un `real`, y el panel se quedaba en «0.00 kg» para
+           siempre. Que saliera bien o mal dependía de con qué fila coincidiera.
+           Ahora se miran las últimas cinco y se toma la primera utilizable. */
         const { data } = await db.from('sensor_data').select('weight,created_at,empty_weight')
             .eq('device_id', window.currentDeviceId)
-            .order('created_at', { ascending: false }).limit(1);
+            .order('created_at', { ascending: false }).limit(5);
         if (!data?.length) return;
-        const readingTime = _fechaUTC(data[0].created_at).getTime();
-        // Ignorar solo lecturas muy anteriores al momento de calibración
-        if (readingTime < calDate - margenMs) return;
+        const posteriores = data.filter(r =>
+            _fechaUTC(r.created_at).getTime() >= calDate - margenMs);   // no valen las de antes
+        if (!posteriores.length) return;
+        const fila = _ultimaValida(posteriores, empty);
+        if (!fila){
+            console.warn('[cal] aún sin lectura utilizable (' +
+                         posteriores.map(r => r.weight).join(', ') + ') — se sigue esperando');
+            return;                       // el sondeo continúa: no se ha resuelto nada
+        }
         _stopCalPolling();
-        // Apagar el flag: ya llegó el primer dato del ciclo nuevo.
+        // Apagar el flag: ya llegó el primer dato bueno del ciclo nuevo.
         // A partir de ahora updateAll() puede volver a sincronizar ciclos normalmente.
         window._awaitingFirstReading = false;
-        const realNeto = +((_netoDe(data[0], empty) ?? 0)).toFixed(2);
+        const realNeto = +_netoDe(fila, empty).toFixed(2);
         const diff     = +(calD.std - realNeto).toFixed(2);
         calD.real           = realNeto;
         calD.diff           = diff;
@@ -3768,11 +3799,15 @@ async function pollLatest(){
             .select("weight, empty_weight, battery_voltage, battery_percentage, created_at, cycle_id")
             .eq("device_id", window.currentDeviceId)
             .order("created_at", { ascending: false })
-            .limit(1);
+            .limit(5);                                    // [p23] por si la última no sirve
         if (error){ console.warn("[pollLatest]", error); return; }
         if (!data?.length) return;
-        const latest = data[0];
-        const net = _netoDe(latest, empty) ?? 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
+        const latest = _ultimaValida(data, empty);        // [p23]
+        if (!latest){
+            console.warn('[pollLatest] ninguna de las últimas 5 lecturas es utilizable — se conserva la anterior');
+            return;                                       // no pisar la pantalla con un cero
+        }
+        const net = _netoDe(latest, empty);   // neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
         // Actualizar display
         window._lastKnownNet      = net;
@@ -4035,10 +4070,23 @@ async function updateAll(){
             }
             return;
         }
-        const latest = data[0];
+        const latest = _ultimaValida(data, empty) || data[0];   // [p23]
         window._ultimaLecturaMs = _fechaUTC(latest.created_at).getTime();   // [p16]
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
-        const net = _netoDe(latest, empty) ?? 0;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
+        const netCrudo = _netoDe(latest, empty);                // [p23]
+        if (netCrudo === null){
+            /* Ninguna lectura del periodo es utilizable. Antes se escribía 0,00 kg;
+               ahora se conserva lo último bueno que se conoce y se dice que el dato
+               es viejo, en vez de afirmar que el cilindro está vacío. */
+            console.warn('[updateAll] sin lecturas utilizables — se conserva la anterior');
+            if (window._lastKnownNet !== undefined){
+                document.getElementById("digital").innerText = window._lastKnownNet.toFixed(2);
+                updateGauge(Math.max(0, window._lastKnownGaugePct || 0));
+            }
+            if (lrEl) lrEl.innerText = "Lectura no utilizable — esperando la siguiente";
+            return;
+        }
+        const net = netCrudo;   // neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
         // v80.77: guardar última medición conocida para retenerla entre ciclos
         window._lastKnownNet      = net;
