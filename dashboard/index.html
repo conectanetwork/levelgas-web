@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p24-cero-heredado-20260925">
+<meta name="lg-build" content="p25-rssi-20260925">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -826,6 +826,10 @@ header{
         <div id="dp-wifi-row" style="display:none;align-items:center;gap:5px;margin-top:3px;margin-bottom:2px">
           <i class="fas fa-wifi" style="font-size:10px;color:#64748b"></i>
           <span id="dp-wifi-ssid" style="font-size:11px;color:#64748b;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px" title="Red WiFi del dispositivo">—</span>
+          <!-- [p25] Calidad de la señal. Sin esto solo se sabía a qué red está
+               conectado el equipo, no con qué margen, y probar una antena o una
+               ubicación se juzgaba por "conecta / no conecta". -->
+          <span id="dp-wifi-rssi" style="display:none;font-size:10px;font-weight:700;padding:1px 5px;border-radius:999px;white-space:nowrap"></span>
         </div>
         <div class="dp-bottom-row" style="flex-direction:column;align-items:stretch;gap:6px">
           <div id="dp-dot" class="dot" style="display:none"></div>
@@ -1954,6 +1958,35 @@ function _netoDe(row, tara){
     if (bruto === null) return null;
     const t = Number.isFinite(parseFloat(tara)) ? parseFloat(tara) : 0;
     return Math.max(0, bruto - t);
+}
+/* [p25] CALIDAD DE LA SEÑAL WIFI (RSSI, dBm, siempre negativo).
+   Los tramos no son arbitrarios: −67 dBm es el umbral que se usa habitualmente
+   como mínimo para tráfico estable, y por debajo de −85 el enlace deja de ser
+   utilizable. La escala es logarítmica, así que 6 dB equivalen más o menos a
+   duplicar el alcance: por eso una diferencia que parece pequeña en el número
+   separa una instalación que no falla nunca de otra que se cae cada dos días.
+   Los colores son los mismos del semáforo del portal, ya validados contra
+   daltonismo, para no introducir una paleta nueva. */
+function _pintarSenal(rssi){
+    const el = document.getElementById('dp-wifi-rssi');
+    if (!el) return;
+    const v = parseInt(rssi, 10);
+    if (!Number.isFinite(v) || v >= 0 || v < -120){   // equipo con firmware anterior
+        el.style.display = 'none';
+        return;
+    }
+    let texto, fondo, color;
+    if (v >= -67){ texto = 'buena';       fondo = '#dcfce7'; color = '#166534'; }
+    else if (v >= -75){ texto = 'justa';  fondo = '#fef3c7'; color = '#92400e'; }
+    else if (v >= -85){ texto = 'al límite'; fondo = '#ffedd5'; color = '#9a3412'; }
+    else { texto = 'insuficiente';        fondo = '#fee2e2'; color = '#991b1b'; }
+    el.textContent = v + ' dBm · ' + texto;
+    el.style.background = fondo;
+    el.style.color = color;
+    el.title = 'Potencia con la que le llega el wifi a la báscula. '
+             + 'Más cerca de cero es mejor: −50 cómoda, −67 estable, −75 justa, '
+             + 'peor de −85 no sirve. Cada 6 dB equivalen a duplicar el alcance.';
+    el.style.display = 'inline-block';
 }
 /* [p23] La primera fila de la consulta no siempre sirve. La báscula envía 0,0 kg
    cuando el HX711 no entrega dato —confirmado en terreno: con un cilindro de
@@ -3808,7 +3841,7 @@ async function pollLatest(){
         const empty    = parseFloat(LS.getItem("empty") || document.getElementById("empty-weight").value || "0");
         const full     = parseFloat(LS.getItem("full")  || document.getElementById("full-weight").value  || "0");
         const { data, error } = await db.from("sensor_data")
-            .select("weight, empty_weight, battery_voltage, battery_percentage, created_at, cycle_id")
+            .select("weight, empty_weight, battery_voltage, battery_percentage, created_at, cycle_id, wifi_ssid, rssi")
             .eq("device_id", window.currentDeviceId)
             .order("created_at", { ascending: false })
             .limit(5);                                    // [p23] por si la última no sirve
@@ -3830,6 +3863,7 @@ async function pollLatest(){
         if (lrEl) lrEl.innerText = fmtDate(latest.created_at) + " (CLT)";
         window._ultimaLecturaMs = _fechaUTC(latest.created_at).getTime();   // [p16]
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
+        _pintarSenal(latest.rssi);   // [p25] también en el sondeo de 30 s
         checkEarlyAlert(net);
         // Si llegó un dato más nuevo que el último del gráfico → actualizar gráfico ya
         // Esto captura el boot-send del ESP32 sin esperar los 15 min del intervalo largo.
@@ -4030,7 +4064,7 @@ async function updateAll(){
         const full  = parseFloat(fullStr);
         const supportWindowIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         let { data, error: sErr } = await db.from("sensor_data")
-            .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature")
+            .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature, rssi")
             .eq("device_id", window.currentDeviceId)
             .eq("cycle_id", cycle)
             .gte("created_at", supportWindowIso)
@@ -4041,7 +4075,7 @@ async function updateAll(){
         // Se usa para display, registros y el punto actual; nunca se dibuja con su fecha antigua.
         if (!data?.length) {
             const { data: latestFallback, error: latestFallbackErr } = await db.from("sensor_data")
-                .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature")
+                .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature, rssi")
                 .eq("device_id", window.currentDeviceId)
                 .eq("cycle_id", cycle)
                 .order("created_at", { ascending: false })
@@ -4115,6 +4149,7 @@ async function updateAll(){
             if (ssidEl)  ssidEl.title      = "Red WiFi: " + latest.wifi_ssid;
             if (ssidRow) ssidRow.style.display = "flex";
         }
+        _pintarSenal(latest.rssi);   // [p25]
         checkEarlyAlert(net);
         try {
             // Siempre llamar _loadCalPanel: muestra localStorage al instante
