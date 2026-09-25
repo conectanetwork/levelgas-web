@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p23-lectura-cero-20260925">
+<meta name="lg-build" content="p24-cero-heredado-20260925">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -3355,7 +3355,7 @@ function _renderCalPanel(d){
         diffEl.textContent = '—';
         diffEl.className   = 'cal-val diff-pending';
         if (noteEl) noteEl.style.display = 'none';
-    } else if (d.real == null){
+    } else if (d.real == null || d.real === 0){   // [p23] el 0 heredado es «sin medir»
         /* [p20] "Esperando primera medición…" a secas no decía cuánto ni de
            qué dependía, y la báscula puede tardar 15 minutos en reportar. */
         realEl.textContent = '⏳ Esperando medición — pulse RESET';
@@ -3453,7 +3453,16 @@ function showCalibrationResult(stdKg){
    pero todavía no la medición con la que compararlo. Da igual el valor de
    pending_reboot: ese campo dice si falta apretar RESET, no si llegó el dato. */
 function _calEnEspera(d){
-    return !!d && d.std != null && d.real == null;
+    /* [p23] `real === 0` también cuenta como «sin medir». Un cero no puede ser
+       una medición legítima —_lecturaPlausible() lo rechaza siempre—, así que
+       si está guardado es que lo escribió el defecto anterior, cuando una
+       lectura fallida se convertía en cero y el sondeo se daba por resuelto.
+       Sin esto, los equipos que ya tienen ese cero en Supabase se quedan
+       mostrando «0.00 kg» para siempre aunque el arreglo esté instalado: la
+       corrección impide escribir ceros nuevos, pero no borra el que ya está.
+       Tratarlo como pendiente hace que el panel se cure solo en la próxima
+       lectura buena. */
+    return !!d && d.std != null && (d.real == null || d.real === 0);
 }
 /* [p20] Antes: setInterval de 5 s para siempre. La báscula reporta cada 15 min
    —y solo si el peso se movió 0,25 kg—, así que esos 5 s significaban cientos
@@ -3487,10 +3496,13 @@ async function _pollForFirstReading(){
     if (!raw) { _stopCalPolling(); return; }
     let calD;
     try { calD = JSON.parse(raw); } catch(e){ _stopCalPolling(); return; }
-    // El polling continúa mientras real == null (aún no llegó la primera medición).
+    // El polling continúa mientras no haya una medición de verdad.
     // Antes se usaba pending_reboot como condición, pero ahora lo ponemos false
     // inmediatamente al confirmar el reset, así que hay que usar real.
-    if (calD.real != null){ _stopCalPolling(); return; }
+    // [p24] Mismo criterio que el panel: un `real` de 0 no es una medición, es
+    // el rastro del defecto anterior. Con `real != null` a secas el sondeo se
+    // detenía en el acto y el cero heredado no se curaba nunca.
+    if (!_calEnEspera(calD)){ _stopCalPolling(); return; }
     const calDate = new Date(calD.date).getTime();
     // Margen de 5 min: acepta lecturas que llegaron justo antes de que se guardara
     // la calibración (el reloj del ESP32 y del dashboard pueden diferir levemente).
