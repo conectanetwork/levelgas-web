@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p27-id-equipo-20260926">
+<meta name="lg-build" content="p29-bruto-bajo-tara-20260926">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1977,12 +1977,31 @@ function _serieValida(rows, tara){
                               || !(_esPicoTransitorio(b[i-1], b[i], b[i+1])
                                 || _esValleTransitorio(b[i-1], b[i], b[i+1])));   // [p26]
 }
+/* [p29] SI NO LLEGA AL PESO DEL CILINDRO VACIO, NO HAY CILINDRO QUE PESAR.
+   ─────────────────────────────────────────────────────────────────────────
+   El 26-09, con lecturas de 0,798 y 5,17 kg, el dashboard y el portal mostraban
+   los dos 0 kg. Coincidían perfectamente y los dos mentían: el culpable era el
+   Math.max(0, bruto - tara) de _netoDe(), que convierte lo imposible en un cero
+   creíble. 5,17 kg con una tara de 16,3 no es un cilindro casi vacío — es un
+   cilindro que no está sobre la báscula.
+   Un cilindro vacío de verdad marca la tara entera; no puede perder el 10 % de
+   su propio acero. El margen absorbe el ruido de la celda y una tara algo mal
+   medida. Con la tara sin configurar (0) la regla se desactiva sola, que es el
+   estado de un equipo recién instalado.
+   Va en _brutoDe() y no en _netoDe() porque aquí es donde ya se decide si una
+   fila es una medición: devolviendo null, las siete funciones que comparan
+   lecturas la saltan igual que saltan un -999. La misma regla está en SQL
+   dentro de consumo_ritmo() y de distribuidora_panel(). */
+const CILINDRO_MIN_FACTOR = 0.9;
 function _brutoDe(row, tara){
     const w = parseFloat(row?.weight);
     if (!_lecturaPlausible(w)) return null;             // -999, NaN, 0.0, absurdos
     const e = parseFloat(row?.empty_weight);
     const bruto = (Number.isFinite(e) && e > 0) ? w + e : w;   // e>0 ⇒ la lectura venía neta
-    return _lecturaPlausible(bruto) ? bruto : null;
+    if (!_lecturaPlausible(bruto)) return null;
+    const t = parseFloat(tara);
+    if (Number.isFinite(t) && t > 0 && bruto < t * CILINDRO_MIN_FACTOR) return null;
+    return bruto;
 }
 function _netoDe(row, tara){
     const bruto = _brutoDe(row, tara);
@@ -3195,23 +3214,36 @@ async function updateDailyConsumption(existingData){
    DÍAS RESTANTES
 ═══════════════════════════════════════════ */
 async function updateDaysRemaining(net){
-    /* PARCHE [2026-08-27] - DIAS RESTANTES
-       ─────────────────────────────────────
-       Antes se ajustaba una recta de minimos cuadrados sobre el peso bruto y
-       se tomaba su pendiente como ritmo de consumo. Cualquier recarga dentro
-       de la ventana aplana esa recta: con el recambio del 23/08 (+16.9 kg) la
-       pendiente daba 0.125 kg/dia en vez de 2.63, y el panel anunciaba 61 dias
-       cuando en realidad quedaban 3.
-       Ahora el ritmo se calcula igual que el resto del dashboard: suma de las
-       CAIDAS de peso dividida por el tiempo que abarcan. Las subidas -recarga
-       o cambio de cilindro- no cuentan, asi que la ventana puede incluirlas
-       sin distorsionar el resultado. */
+    /* [p28 · 2026-09-26] EL CÁLCULO SE MUDÓ AL SERVIDOR, Y NO POR COMODIDAD.
+       ─────────────────────────────────────────────────────────────────────
+       Hasta aquí este panel calculaba el ritmo de consumo en el navegador, y
+       el portal de distribuidoras lo calculaba aparte en SQL. Dos
+       implementaciones de la misma idea. Durante un mes ésta fue acumulando
+       correcciones —lecturas no plausibles, picos transitorios, valles— y la
+       otra se quedó donde estaba, hasta que el 26-09 la misma báscula decía
+       6,1 días en esta pantalla y 0,2 en la del distribuidor.
+
+       El promedio que guardaba el servidor era de 76 kg/día: cinco veces la
+       capacidad entera del cilindro, todos los días. De los 68 kg que sumaba,
+       61 eran las dos veces que la báscula quedó vacía y 5 el peso extra que
+       alguien puso encima y quitó. Consumo real: 1 kg. Nadie se dio cuenta
+       porque ninguna pantalla contradecía a la otra hasta que las dos mostraron
+       la misma báscula.
+
+       El arreglo NO fue copiar los filtros al SQL: eso deja dos copias que
+       vuelven a separarse en cuanto una aprenda algo. Ahora hay UN cálculo,
+       `consumo_ritmo()`, y tres que preguntan: este panel, distribuidora_panel()
+       y update_consumo_diario().
+
+       Lo que se pierde: este panel ya no puede estimar sin red. El respaldo que
+       ya existía —usarCache(), el promedio histórico de devices— sigue ahí. Y no
+       agrega viajes: la consulta de lecturas que se hacía aquí desaparece. */
     const el = document.getElementById("days-remaining");
     const sb = document.getElementById("mc-dias-sub");
     if (!window.currentDeviceId || net <= 0){
         el.innerText = "—"; if (sb) sb.innerText = "Sin datos"; return;
     }
-    // Respaldo: promedio historico que mantiene el backend en devices.
+    // Respaldo: promedio histórico que mantiene el backend en devices.
     const usarCache = () => {
         const cached = window.currentDeviceData?.consumo_diario_g;
         if (!(cached > 0)) return false;
@@ -3225,66 +3257,45 @@ async function updateDaysRemaining(net){
         return true;
     };
     try {
-        const plan    = window.currentPlan || 'free';
-        // Retencion por plan: free 7 d, hogar 30 d, empresa 6 meses. Para el
-        // ritmo nunca hacen falta mas de 14 dias: mas atras el habito de
-        // consumo ya no representa al actual.
-        const maxDias = plan === 'free' ? 7 : plan === 'hogar' ? 30 : 183;
-        const amplia  = new Date(Date.now() - Math.min(14, maxDias) * 86400000).toISOString();
-        // Se prefiere el cilindro EN CURSO: es el periodo que el cliente esta
-        // viviendo, y evita arrastrar el ritmo de instalaciones o pruebas
-        // anteriores. Si el cilindro es demasiado nuevo para dar una muestra
-        // util, se amplia la ventana.
-        const { data: lc } = await db.from("cylinder_events")
-            .select("created_at").eq("device_id", window.currentDeviceId)
-            .eq("event_type", "cylinder_change")
-            .order("created_at", { ascending: false }).limit(1);
-        const leer = async (desde) => {
-            const { data, error } = await db.from("sensor_data").select("created_at,weight,empty_weight,temperature")
-                .eq("device_id", window.currentDeviceId)
-                .gte("created_at", desde).order("created_at", { ascending: true });
-            if (error) throw error;
-            return data || [];
-        };
-        const suficiente = (f) => f.length >= 4 &&
-            (_fechaUTC(f[f.length-1].created_at) - _fechaUTC(f[0].created_at)) / 86400000 >= 1;
-        let data = [];
-        if (lc?.length){
-            const desdeCiclo = new Date(_fechaUTC(lc[0].created_at).getTime() + 15000).toISOString();
-            if (desdeCiclo > amplia) data = await leer(desdeCiclo);
-        }
-        if (!suficiente(data)) data = await leer(amplia);
-        if (!data || data.length < 2){
-            if (!usarCache()){
-                el.innerText = "Insuf.";
-                if (sb) sb.innerText = `Pocos datos (${data?.length ?? 0} lecturas)`;
+        const { data, error } = await db.rpc('consumo_ritmo',
+                                            { p_device_id: window.currentDeviceId });
+        if (error) throw error;
+        const r = Array.isArray(data) ? data[0] : data;
+        const ritmo = (r && r.kg_dia != null) ? Number(r.kg_dia) : NaN;
+
+        if (!(ritmo > 0)){
+            const motivo = r ? r.motivo : null;
+            /* «ritmo_imposible» no es falta de datos: es que las lecturas dicen
+               algo que no puede pasar —el cilindro vaciándose en menos de dos
+               días—. Aquí NO se cae al promedio histórico. Tapar una lectura
+               imposible con una cifra creíble es exactamente lo que dejó el 0,2
+               del portal en pantalla durante semanas sin que nadie lo notara. */
+            if (motivo === 'ritmo_imposible'){
+                el.innerText = "—"; el.style.color = "var(--orange)";
+                if (sb){
+                    sb.className = "mc-sub warn";
+                    sb.innerText = "Lecturas inconsistentes — revisa que el cilindro esté bien apoyado";
+                }
+                return;
+            }
+            if (usarCache()) return;
+            el.innerText = "—";
+            if (sb){
+                sb.className = "mc-sub";
+                sb.innerText = motivo === 'sin_consumo_detectable'    ? "Sin consumo detectable"
+                             : motivo === 'sin_capacidad_configurada' ? "Falta configurar el cilindro"
+                             :                                          "Faltan más lecturas para estimar";
             }
             return;
         }
-        let consumo = 0;
-        const tara = parseFloat(LS.getItem("empty") || 0);
-        const dataV = _serieValida(data, tara);           // fuera las lecturas fallidas
-        if (dataV.length < 2){ if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Sin lecturas validas"; } return; }
-        for (let i = 1; i < dataV.length; i++){
-            const d = _netoDe(dataV[i-1], tara) - _netoDe(dataV[i], tara);
-            if (d > 0) consumo += d;
-        }
-        const t0   = _fechaUTC(dataV[0].created_at).getTime();
-        const tN   = _fechaUTC(dataV[dataV.length - 1].created_at).getTime();
-        const span = (tN - t0) / 86400000;
-        if (!(span > 0.25)){
-            if (!usarCache()){ el.innerText = "—"; if (sb) sb.innerText = "Historial demasiado corto"; }
-            return;
-        }
-        const ritmo = consumo / span;
-        console.log(`[días] ${consumo.toFixed(3)} kg en ${span.toFixed(2)} d = ${ritmo.toFixed(4)} kg/día · neto ${net.toFixed(2)} kg`);
-        if (ritmo < 0.005){
-            el.innerText = "—"; if (sb) sb.innerText = "Sin consumo detectable"; return;
-        }
+
         const days     = net / ritmo;
-        const poca     = span < 3;
+        const muestra  = Number(r.dias_muestra);
+        const poca     = !(muestra >= 3);
         const ritmoTxt = ritmo.toFixed(2) + " kg/d";
         const extra    = poca ? " · faltan datos" : "";
+        console.log(`[días] ${ritmo.toFixed(4)} kg/día sobre ${muestra.toFixed(2)} d `
+                  + `y ${r.lecturas} lecturas · neto ${net.toFixed(2)} kg`);
         el.innerText = days > 90 ? "+90 d" : "~" + days.toFixed(1) + " d";
         if (sb){
             if      (days < 3){ el.style.color="var(--red)";    sb.className="mc-sub danger"; sb.innerText="Crítico · "  + ritmoTxt + extra; }
@@ -3292,7 +3303,13 @@ async function updateDaysRemaining(net){
             else if (poca)    { el.style.color="var(--orange)"; sb.className="mc-sub warn";   sb.innerText="Estimado · " + ritmoTxt + extra; }
             else              { el.style.color="var(--blue)";   sb.className="mc-sub ok";     sb.innerText="Normal · "   + ritmoTxt; }
         }
-    } catch(e){ console.error("updateDaysRemaining:", e); el.innerText="Error"; }
+    } catch(e){
+        /* Antes esto dejaba «Error» en pantalla aunque hubiera un promedio
+           histórico perfectamente utilizable guardado. Un corte de red no tiene
+           por qué borrar el único dato que el cliente mira. */
+        console.error("updateDaysRemaining:", e);
+        if (!usarCache()) el.innerText = "Error";
+    }
 }
 /* ═══════════════════════════════════════════
    RECORDS TABLE
