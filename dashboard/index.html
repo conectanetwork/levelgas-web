@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p25-rssi-20260925">
+<meta name="lg-build" content="p26-valle-20260926">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1939,12 +1939,43 @@ function _esPicoTransitorio(bPrev, bCur, bNext){
     const escalon = Math.abs(bPrev - bNext);           // cambio real de nivel alrededor
     return escalon < sobresale;                        // vecinas parecidas ⇒ es un pico
 }
+/* ── [p26] Valles transitorios: el cilindro levantado de la balanza ─────────
+   El caso simetrico del pico, y el que mas daño hace. El 25/09/2026 alguien
+   retiro el cilindro un rato:
+
+     31.215 → 0.798 → 30.032 kg
+
+   La bajada de 30,4 kg se conto como gas quemado. El ritmo salto a 16,35 kg/dia
+   y «Días restantes» paso a 0,8 d con el cilindro al 91 %. De paso, la subida de
+   vuelta activo el aviso de «cilindro nuevo (+13,7 kg) sin registrar».
+
+   El criterio es el del pico, al reves: la lectura se hunde por debajo de sus
+   dos vecinas y esas dos vecinas se parecen entre si. Y el argumento es mas
+   solido que en el pico, porque el gas consumido NO VUELVE: una bajada que se
+   recupera en la lectura siguiente no pudo ser consumo, sea de 30 kg o de 0,2.
+
+     retirada  31.22 →  0.80 → 30.03   se hunde 29.23, escalon 1.18  ⇒ se descarta
+     ruido     29.10 → 28.90 → 29.05   se hunde  0.15, escalon 0.05  ⇒ se descarta
+     recarga   20.00 → 15.00 → 30.00   se hunde  5.00, escalon 10.00 ⇒ se conserva
+     consumo   20.00 → 19.00 → 18.00   no se hunde bajo ambas        ⇒ se conserva
+
+   El tercer caso es el que obliga a exigir que las vecinas se parezcan: una
+   bajada seguida de una recarga es consumo de verdad y tiene que contarse. */
+const VALLE_MIN_KG = 0.15;   // el mismo umbral del pico: por debajo es ruido de celda
+function _esValleTransitorio(bPrev, bCur, bNext){
+    if (bPrev === null || bCur === null || bNext === null) return false;
+    const hunde = Math.min(bPrev, bNext) - bCur;       // cuanto se hunde bajo el nivel
+    if (hunde < VALLE_MIN_KG) return false;
+    const escalon = Math.abs(bPrev - bNext);           // cambio real de nivel alrededor
+    return escalon < hunde;                            // vecinas parecidas ⇒ es un valle
+}
 function _serieValida(rows, tara){
     const base = (rows || []).filter(r => _netoDe(r, tara) !== null);
     if (base.length < 3) return base;
     const b = base.map(r => _brutoDe(r, tara));
     return base.filter((r, i) => i === 0 || i === base.length - 1
-                              || !_esPicoTransitorio(b[i-1], b[i], b[i+1]));
+                              || !(_esPicoTransitorio(b[i-1], b[i], b[i+1])
+                                || _esValleTransitorio(b[i-1], b[i], b[i+1])));   // [p26]
 }
 function _brutoDe(row, tara){
     const w = parseFloat(row?.weight);
