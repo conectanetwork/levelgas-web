@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d13-reset-en-vez-de-apagar-20260924">
+<meta name="lg-build" content="d14-mover-pin-20260926">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -330,12 +330,24 @@ header .marca{font-size:16px;margin:0}
 }
 .barra-ruta[hidden]{display:none}
 .barra-ruta .crece{flex:1}
+/* [d14] .btn-primario nace con width:100% porque su sitio natural es el pie
+   de un formulario. Dentro de la barra, que es una fila flexible, ese 100%
+   se come el ancho entero, manda «Cancelar» a una segunda linea y empuja el
+   mapa hacia abajo justo cuando hay que mirarlo. Aqui vuelve a ser un boton. */
+.barra-ruta .btn-primario{width:auto;padding:9px 16px}
 .busca-lugar{
   padding:6px 10px;border:1.5px solid var(--borde);border-radius:8px;
   background:var(--sup);color:var(--ink);font:13px inherit;min-width:190px;
 }
 .busca-lugar:focus{outline:2px solid var(--acento);outline-offset:1px;border-color:var(--acento)}
 .modo-base #mapa{cursor:crosshair}
+/* [d14] Mientras se mueve un cliente, su pin late para que no se confunda con
+   los demas, y el resto se apaga: lo unico accionable es ese. */
+.modo-mover #mapa{cursor:grab}
+.modo-mover .leaflet-marker-draggable{cursor:grab;z-index:10000!important}
+.modo-mover .leaflet-marker-icon:not(.leaflet-marker-draggable){opacity:.35}
+.modo-mover .leaflet-marker-draggable .pin{box-shadow:0 0 0 4px rgba(37,99,235,.45);animation:latido 1.4s ease-in-out infinite}
+@keyframes latido{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 .leaflet-popup-content{margin:11px 13px;font:13px/1.45 inherit;min-width:190px}
 .pop-nom{font-weight:800;font-size:14px;margin-bottom:2px}
 /* El recuadro de instruccion usa el gris del estado, no el rojo de alerta: el
@@ -603,8 +615,9 @@ header .marca{font-size:16px;margin:0}
     <button type="button" class="btn" id="btn-geo" style="width:100%">Buscar coordenadas desde la dirección</button>
     <p class="nota" id="geo-nota">
       Usa OpenStreetMap. Revisa siempre dónde cayó el pin antes de guardar: una
-      dirección mal escrita aterriza en otra cuadra sin avisar. Después puedes
-      arrastrar el pin en el mapa para corregirlo.
+      dirección mal escrita aterriza en otra cuadra sin avisar. Si el pin queda
+      torcido, o la báscula se muda, ciérra esto y usa <b>Mover</b> en el globo
+      del cliente: se arrastra el pin sobre el mapa y se confirma.
     </p>
 
     <div class="campo" style="margin-top:12px">
@@ -706,6 +719,9 @@ const AYUDA_ID = 'El identificador va como SG- y ocho caracteres (0-9 y A-F), '
 
 let MAPA = null, CAPA = null, FILAS = [], MARCAS = {}, FILTRO = 'todos', SEL = null;
 let INFO = null, CAPA_RUTA = null, RUTA = null, MODO_BASE = false;
+/* [d14] cliente_id que se esta reubicando, y donde estaba su pin antes de
+   tocarlo — cancelar tiene que poder devolverlo exactamente ahi. */
+let MOVIENDO = null, POS_ORIGINAL = null;
 
 /* Santiago, y SOLO como ultimo recurso. El orden real de encuadre es:
       1. los clientes con coordenadas (fitBounds, en pintar())
@@ -897,9 +913,19 @@ function pintar(){
                 + (nOrden ? '<i class="pin-orden">' + nOrden + '</i>' : '') + '</div>',
             iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -17]
         });
-        const m = L.marker([f.lat, f.lng], { icon: icono, title: f.nombre })
+        /* [d14] Se crean TODOS arrastrables y se desactiva enseguida. Leaflet
+           solo construye marker.dragging cuando el marcador nace con
+           draggable:true; si naciera sin el, no habria nada que activar despues
+           y habria que recrear el marcador para poder moverlo. */
+        const m = L.marker([f.lat, f.lng], { icon: icono, title: f.nombre, draggable: true })
                    .addTo(CAPA).bindPopup(() => popup(f));
-        m.on('click', () => { SEL = f.cliente_id; pintar(); resaltarFila(f.cliente_id); });
+        if (m.dragging) m.dragging.disable();
+        if (MOVIENDO === f.cliente_id && m.dragging) m.dragging.enable();
+        m.on('dragend', () => soltarPin(f.cliente_id, m));
+        m.on('click', () => {
+            if (MOVIENDO) return;          // en modo mover el globo estorba
+            SEL = f.cliente_id; pintar(); resaltarFila(f.cliente_id);
+        });
         MARCAS[f.cliente_id] = m;
         puntos.push([f.lat, f.lng]);
     });
@@ -932,7 +958,10 @@ function pintar(){
        acercaria hasta la vereda. Con dos o mas hay que dejar que fitBounds haga
        su trabajo — poniendole tope, un recorrido de 5 km no cabe en pantalla y
        la mitad de las paradas quedan fuera. Se vio en la prueba de ruta. */
-    if (puntos.length) MAPA.fitBounds(puntos, {
+    /* [d14] Reencuadrar en mitad de una reubicacion mueve el suelo bajo el pin
+       que la persona esta colocando. Mientras dure el modo, el mapa se queda
+       donde ella lo dejo. */
+    if (puntos.length && !MOVIENDO) MAPA.fitBounds(puntos, {
         padding: [45, 45],
         maxZoom: puntos.length === 1 ? 15 : 18
     });
@@ -1039,6 +1068,7 @@ function popup(f){
          + '<div class="pop-acciones">'
          +   '<button class="btn" onclick="entregar(\'' + esc(f.device_id) + '\')">Registrar entrega</button>'
          +   '<button class="btn" onclick="editar(\'' + esc(f.cliente_id) + '\')">Editar</button>'
+         +   '<button class="btn" onclick="moverCliente(\'' + esc(f.cliente_id) + '\')">Mover</button>'
          + '</div>';
 }
 function linea(k, v){ return '<div class="pop-l"><span>' + k + '</span><b>' + v + '</b></div>'; }
@@ -1206,6 +1236,126 @@ window.moverBase = function(){
     MAPA.closePopup();
     if (!MODO_BASE) $('btn-base').click();
 };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOVER UN CLIENTE DE SITIO  [d14 2026-09-26]
+   ───────────────────────────────────────────────────────────────────────────
+   Una bascula cambia de casa y sus coordenadas con ella. Hasta ahora habia dos
+   caminos y los dos mal: escribir latitud y longitud decimales —numeros que el
+   operador no tiene— o apretar «Buscar coordenadas desde la direccion», que
+   depende de que la direccion nueva este bien escrita y de que Nominatim la
+   encuentre. Con el mapa delante, arrastrar el pin es la operacion directa, y
+   ademas es la unica que deja VER donde quedo.
+
+   Tres decisiones, las tres por el mismo motivo —que nadie mueva a un cliente
+   sin querer—:
+
+     1. No se arrastra por defecto. Hay que entrar al modo desde el boton
+        «Mover» del globo. En un telefono, un pin arrastrable dentro de un mapa
+        que tambien se arrastra cambia la direccion de reparto de un roce.
+     2. Soltar no guarda: pregunta, y dice cuantos metros se movio. Esa cifra es
+        lo que distingue una correccion de media cuadra de un resbalon que cruzo
+        la ciudad.
+     3. Cancelar devuelve el pin a donde estaba, no a donde la base cree que
+        esta: se guarda la posicion de partida al entrar.
+
+   El servidor ya estaba listo: distribuidora_cliente_ubicacion existe, valida
+   el rango de las coordenadas, exige que el cliente sea de TU distribuidora y
+   tiene permiso de ejecucion para `authenticated`. No lo llamaba nadie. */
+
+window.moverCliente = function(clienteId){
+    const f = FILAS.find(x => x.cliente_id === clienteId);
+    const m = MARCAS[clienteId];
+    if (!f || !m) return;
+    if (MODO_BASE) salirModoBase();
+    MAPA.closePopup();
+    MOVIENDO     = clienteId;
+    POS_ORIGINAL = m.getLatLng();
+    document.body.classList.add('modo-mover');
+    if (m.dragging) m.dragging.enable();
+    /* Zoom 17: se distinguen las casas. Mas lejos no se puede colocar un pin con
+       honestidad, y acercar mas obliga a alejar para ubicarse. */
+    MAPA.setView(POS_ORIGINAL, Math.max(MAPA.getZoom(), 17));
+    barraMover(f, null);
+};
+
+function barraMover(f, destino){
+    const metros = destino ? Math.round(MAPA.distance(POS_ORIGINAL, destino)) : null;
+    let texto;
+    if (destino){
+        const cuanto = metros < 1000 ? metros + ' m'
+                                     : (metros / 1000).toFixed(1).replace('.', ',') + ' km';
+        texto = '<span class="crece"><b>' + esc(f.nombre) + '</b> se movió <b>' + cuanto
+              + '</b> — ' + destino.lat.toFixed(6) + ', ' + destino.lng.toFixed(6)
+              + '<span style="color:var(--ink-2)"> · la dirección escrita no cambia.</span></span>'
+              + '<button class="btn btn-primario" id="mv-ok">Guardar aquí</button>'
+              + '<button class="btn" id="mv-no">Cancelar</button>';
+    } else {
+        texto = '<span class="crece">Arrastra el pin de <b>' + esc(f.nombre)
+              + '</b> hasta su ubicación nueva.'
+              + '<span style="color:var(--ink-2)"> Al soltarlo se te pedirá confirmar.</span></span>'
+              + '<button class="btn" id="mv-no">Cancelar</button>';
+    }
+    mostrarBarraRuta(texto, true);
+    /* mostrarBarraRuta reemplaza el HTML entero: los oyentes se enganchan
+       DESPUES de pintarlo, porque los nodos anteriores ya no existen. */
+    if ($('mv-no')) $('mv-no').addEventListener('click', cancelarMover);
+    if ($('mv-ok')) $('mv-ok').addEventListener('click', () => guardarUbicacion(f, destino));
+}
+
+function soltarPin(clienteId, m){
+    if (MOVIENDO !== clienteId) return;
+    const f = FILAS.find(x => x.cliente_id === clienteId);
+    if (f) barraMover(f, m.getLatLng());
+}
+
+function cancelarMover(){
+    const m = MARCAS[MOVIENDO];
+    if (m && POS_ORIGINAL) m.setLatLng(POS_ORIGINAL);   // el pin vuelve donde estaba
+    salirModoMover();
+}
+
+function salirModoMover(){
+    const m = MARCAS[MOVIENDO];
+    if (m && m.dragging) m.dragging.disable();
+    MOVIENDO = null; POS_ORIGINAL = null;
+    document.body.classList.remove('modo-mover');
+    pintarBarraRuta();
+}
+
+async function guardarUbicacion(f, destino){
+    if (!destino) return;
+    const btn = $('mv-ok');
+    if (btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
+    try {
+        const { data, error } = await db.rpc('distribuidora_cliente_ubicacion', {
+            p_cliente_id: f.cliente_id,
+            p_lat: destino.lat,
+            p_lng: destino.lng
+        });
+        if (error || !data || data.ok !== true){
+            /* Si el servidor no lo acepto, el pin NO puede quedarse donde lo
+               soltaron: la pantalla estaria mintiendo sobre lo que hay guardado.
+               Vuelve a su sitio y el modo sigue abierto para reintentar. */
+            const m = MARCAS[f.cliente_id];
+            if (m && POS_ORIGINAL) m.setLatLng(POS_ORIGINAL);
+            mostrarBarraRuta('<span class="crece" style="color:var(--rojo)">'
+                + esc(error ? ('No se pudo guardar: ' + (error.message || ''))
+                            : explicar(data && data.msg))
+                + '</span><button class="btn" id="mv-no">Cerrar</button>', true);
+            if ($('mv-no')) $('mv-no').addEventListener('click', cancelarMover);
+            return;
+        }
+        /* Se actualiza la fila en memoria en vez de recargar la cartera entera:
+           el resto del panel —estado, kg, bateria— no cambio, y una recarga
+           completa perderia el filtro y la ruta que hubiera en pantalla. */
+        f.lat = destino.lat; f.lng = destino.lng;
+        salirModoMover();
+        pintar();
+    } finally {
+        if (btn){ btn.disabled = false; btn.textContent = 'Guardar aquí'; }
+    }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EL ORDEN DE LA RUTA — DOS MOTORES
@@ -1570,6 +1720,10 @@ function explicar(msg){
         case 'nombre_requerido':  return 'Falta el nombre del cliente.';
         case 'sin_distribuidora': return 'Tu cuenta no está asociada a ninguna distribuidora.';
         case 'coordenadas_invalidas': return 'Esas coordenadas no son válidas.';
+        /* [d14] Lo devuelve distribuidora_cliente_ubicacion cuando el cliente no
+           es de tu distribuidora, o lo desvincularon mientras lo movías. */
+        case 'cliente_no_encontrado':
+            return 'Ese cliente ya no está en tu cartera. Actualiza el panel y vuelve a intentarlo.';
         default: return 'No se pudo guardar' + (msg ? ' (' + msg + ')' : '.');
     }
 }
