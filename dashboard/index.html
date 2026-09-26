@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p26-valle-20260926">
+<meta name="lg-build" content="p27-id-equipo-20260926">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2066,8 +2066,19 @@ async function downloadQR(){
         alert("No se pudo cargar el generador QR. Revisa la conexión e intenta nuevamente.");
         return;
     }
-    const params = new URLSearchParams(location.search);
-    const activationKey = params.get('key') || params.get('activation_key') || window.actKey || '';
+    /* [p27] ANTES esta etiqueta imprimia params.get('key') bajo el rotulo
+       «Clave de activacion». Ese parametro es la CLAVE DE ACCESO del cliente,
+       o sea su contrasena, y la etiqueta se descarga como PNG para pegarla en
+       la bascula o mandarla por mensaje. En la practica no llegaba a pasar,
+       porque el parche de seguridad del 22-08 borra ?key= de la barra de
+       direcciones al cargar y este codigo lee location.search DESPUES: el
+       bloque estaba muerto. Codigo muerto que imprime una contrasena es codigo
+       que revive con un descuido, asi que se quita.
+       En su lugar va el identificador del equipo, que es lo que de verdad se
+       vuelve a escribir: el operador del portal de distribuidoras teclea este
+       SG-XXXXXXXX para vincular un cliente. Asi esta etiqueta dice lo mismo
+       que la que imprime el equipo en fabrica. */
+    const idEquipo = String(window.currentDeviceId || '').trim();
     const dashURL = `${location.origin}${location.pathname}?device=${encodeURIComponent(mac)}`;
     const qrSize = 320;
     const qrDiv = document.createElement('div');
@@ -2109,13 +2120,13 @@ async function downloadQR(){
     ctx.fillStyle = '#1e293b';
     ctx.font = 'bold 15px monospace';
     ctx.fillText(mac, W/2, 66 + qrSize + 52);
-    if (activationKey){
+    if (idEquipo){
         ctx.fillStyle = '#475569';
         ctx.font = '11px Arial';
-        ctx.fillText('Clave de activación', W/2, 66 + qrSize + 76);
+        ctx.fillText('ID del equipo', W/2, 66 + qrSize + 76);
         ctx.fillStyle = '#6366f1';
         ctx.font = 'bold 15px monospace';
-        ctx.fillText(activationKey, W/2, 66 + qrSize + 96);
+        ctx.fillText(idEquipo, W/2, 66 + qrSize + 96);
     }
     ctx.fillStyle = '#94a3b8';
     ctx.font = '10px Arial';
