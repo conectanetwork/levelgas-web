@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="lg-build" content="d14-mover-pin-20260926">
+<meta name="lg-build" content="d15-pestana-equipos-20260926">
 <title>LevelGas · Empresas Distribuidoras</title>
 
 <!-- Esto va en el <head> y sin `defer` a proposito: fija el tema ANTES del
@@ -245,6 +245,50 @@ header .marca{font-size:16px;margin:0}
   flex:1;min-width:180px;max-width:340px;padding:8px 12px;
   border:1.5px solid var(--borde);border-radius:9px;background:var(--sup);
 }
+
+/* ── Pestañas [d15] ───────────────────────────────────────────────────────── */
+.pestanas{display:flex;gap:4px;padding:0 16px;border-bottom:1px solid var(--borde)}
+.pestana{
+  border:none;background:none;color:var(--ink-2);font:700 14px inherit;
+  padding:10px 16px;cursor:pointer;border-bottom:2.5px solid transparent;
+  margin-bottom:-1px;
+}
+.pestana:hover{color:var(--ink)}
+.pestana[aria-selected="true"]{color:var(--acento);border-bottom-color:var(--acento)}
+.eq-caja{padding:12px 16px 16px;flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+.eq-barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.eq-barra .crece{flex:1;color:var(--ink-2);font-size:13px}
+.eq-scroll{
+  background:var(--sup);border:1px solid var(--borde);border-radius:12px;
+  overflow:auto;box-shadow:var(--sombra);flex:1;min-height:0;max-height:72vh;
+}
+table.equipos{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+table.equipos th,table.equipos td{
+  padding:9px 11px;text-align:left;white-space:nowrap;
+  border-bottom:1px solid var(--borde);
+}
+table.equipos thead th{
+  position:sticky;top:0;z-index:1;background:var(--sup-2);
+  cursor:pointer;user-select:none;font-size:12px;color:var(--ink-2);
+}
+table.equipos thead th:hover{color:var(--ink)}
+table.equipos th.num,table.equipos td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.equipos tbody tr:hover{background:var(--sup-2)}
+table.equipos td.eq-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+.eq-ojo{color:var(--rojo);font-weight:700}
+/* [d15] .punto no declara display: vive de ser hijo de un flex (los chips,
+   la leyenda) y ahi el ancho se aplica solo. En una celda de tabla es un <i>
+   en linea, donde width y height no hacen nada: el punto de color quedaba
+   invisible y el estado se apoyaba solo en el texto. */
+table.equipos .punto{display:inline-block;vertical-align:middle;margin-right:6px}
+.eq-vacio{padding:28px 16px;text-align:center;color:var(--ink-2)}
+/* [d15] El atributo hidden pone display:none desde la hoja del navegador, y
+   CUALQUIER regla de autor le gana. .panel trae display:grid y .eq-caja trae
+   display:flex, asi que ocultarlas con hidden no hacia nada: la tabla y el
+   mapa quedaban uno debajo del otro. Lo encontro una captura de pantalla,
+   no la prueba — la prueba miraba el atributo, que si estaba puesto.
+   La barra de ruta ya tenia esta misma linea desde antes. */
+.panel[hidden],.eq-caja[hidden]{display:none}
 
 /* ── Mapa + lista ─────────────────────────────────────────────────────────── */
 .panel{display:grid;grid-template-columns:1fr 400px;gap:12px;padding:0 16px 16px;flex:1;min-height:0}
@@ -503,7 +547,20 @@ header .marca{font-size:16px;margin:0}
   <div id="aviso-filtro" class="aviso-filtro" role="status" hidden></div>
   <div id="barra-ruta" class="barra-ruta" role="status" hidden></div>
 
-  <div class="panel">
+  <div class="pestanas" role="tablist" aria-label="Vista">
+    <button class="pestana" id="tab-mapa"    role="tab" aria-selected="true"  aria-controls="panel-mapa">Mapa</button>
+    <button class="pestana" id="tab-equipos" role="tab" aria-selected="false" aria-controls="panel-equipos">Equipos</button>
+  </div>
+
+  <div class="eq-caja" id="panel-equipos" role="tabpanel" aria-labelledby="tab-equipos" hidden>
+    <div class="eq-barra">
+      <span class="crece" id="eq-resumen"></span>
+      <button class="btn" id="btn-eq-csv">Descargar CSV</button>
+    </div>
+    <div class="eq-scroll"><table class="equipos" id="tabla-equipos"></table></div>
+  </div>
+
+  <div class="panel" id="panel-mapa" role="tabpanel" aria-labelledby="tab-mapa">
     <div id="mapa" role="application" aria-label="Mapa de clientes"></div>
     <div class="columna-lista">
       <div class="leyenda" aria-hidden="true">
@@ -828,6 +885,7 @@ async function cargar(){
         $('hd-meta').textContent = FILAS.length + ' cliente' + (FILAS.length === 1 ? '' : 's');
         pintarFichas();
         pintar();
+        if (VISTA === 'equipos') pintarEquipos();   // [d15]
     } finally {
         btn.disabled = false; btn.textContent = 'Actualizar';
     }
@@ -977,6 +1035,198 @@ function pintar(){
             if (m){ MAPA.setView(m.getLatLng(), Math.max(MAPA.getZoom(), 15)); m.openPopup(); }
         });
     });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PESTAÑA «EQUIPOS» — LA FLOTA EN UNA TABLA  [d15 2026-09-26]
+   ───────────────────────────────────────────────────────────────────────────
+   El mapa responde «¿a quien hay que ir hoy?». Esta pestaña responde otra cosa:
+   «¿que equipo se va a caer pronto?». Son preguntas distintas y por eso no
+   caben en la misma vista: una bateria al 18 % o una señal de -88 dBm no tienen
+   donde verse en un pin.
+
+   No pide datos nuevos. distribuidora_panel() ya devolvia bateria en % y en
+   voltios, firmware, ciclo, sensor_ok y ultima conexion — todo eso llegaba al
+   navegador en cada carga y se tiraba. Lo unico que hubo que agregar en la base
+   fue senal_dbm, que existia en devices.last_rssi desde v81.10 y no salia.
+
+   Comparte los chips y el buscador con el mapa A PROPOSITO. Filtrar por
+   «Urgentes» y cambiar de pestaña tiene que seguir mostrando los mismos
+   clientes; dos vistas que cuentan distinto es exactamente el problema que
+   acabamos de cerrar entre el dashboard y el portal. */
+
+let VISTA = 'mapa';
+let EQ_ORDEN = { col: 'nombre', asc: true };
+
+/* Las columnas en un solo sitio: la tabla, el orden y el CSV salen de aqui, asi
+   que no puede pasar que el CSV tenga una columna que la tabla no muestra.
+     clave  → nombre en el CSV y para ordenar
+     txt(f) → lo que se ve en pantalla (puede llevar HTML)
+     val(f) → con que se ordena y que se escribe en el CSV (crudo) */
+const EQ_COLS = [
+  { clave:'equipo',     rotulo:'Equipo',    num:false, cls:'eq-id',
+    val:f=>f.device_id||'',            txt:f=>esc(f.device_id||'—') },
+  { clave:'cliente',    rotulo:'Cliente',   num:false,
+    val:f=>f.nombre||'',               txt:f=>esc(f.nombre||'—') },
+  { clave:'comuna',     rotulo:'Comuna',    num:false,
+    val:f=>f.comuna||'',               txt:f=>esc(f.comuna||'—') },
+  { clave:'estado',     rotulo:'Estado',    num:false,
+    val:f=>f.motivo||'',
+    txt:f=>'<i class="punto p-'+f.color+'"></i> '+esc(textoEstado(f)) },
+  { clave:'dias',       rotulo:'Días',      num:true,
+    val:f=>f.dias_estimados==null?null:Number(f.dias_estimados),
+    txt:f=>f.color==='gris'||f.dias_estimados==null?'—':Number(f.dias_estimados).toFixed(1) },
+  { clave:'gas_kg',     rotulo:'Gas kg',    num:true,
+    val:f=>f.kg_neto==null?null:Number(f.kg_neto),
+    txt:f=>f.kg_neto==null?'—':Number(f.kg_neto).toFixed(1) },
+  { clave:'gas_pct',    rotulo:'Gas %',     num:true,
+    val:f=>f.pct==null?null:Number(f.pct),
+    txt:f=>f.pct==null?'—':Number(f.pct).toFixed(0)+' %' },
+  { clave:'consumo',    rotulo:'kg/día',    num:true,
+    val:f=>f.consumo_diario_kg==null?null:Number(f.consumo_diario_kg),
+    txt:f=>!(f.consumo_diario_kg>0)?'—':Number(f.consumo_diario_kg).toFixed(2) },
+  { clave:'bateria_pct',rotulo:'Batería',   num:true,
+    val:f=>f.bateria_pct==null?null:Number(f.bateria_pct),
+    /* Por debajo del 30 % conviene programar el cambio de pilas junto con una
+       entrega que ya iba a pasar por ahi, en vez de hacer un viaje aparte. */
+    txt:f=>f.bateria_pct==null?'—':
+           '<span class="'+(f.bateria_pct<30?'eq-ojo':'')+'">'+f.bateria_pct+' %</span>' },
+  { clave:'bateria_v',  rotulo:'Volt',      num:true,
+    val:f=>f.bateria_v==null?null:Number(f.bateria_v),
+    txt:f=>f.bateria_v==null?'—':Number(f.bateria_v).toFixed(2)+' V' },
+  { clave:'senal_dbm',  rotulo:'Señal',     num:true,
+    val:f=>f.senal_dbm==null?null:Number(f.senal_dbm),
+    txt:f=>textoSenal(f.senal_dbm) },
+  { clave:'ultima_conexion', rotulo:'Última conexión', num:true,
+    val:f=>f.ultima_conexion?_ms(f.ultima_conexion):null,
+    txt:f=>f.ultima_conexion?esc(haceCuanto(f.ultima_conexion)):'nunca' },
+  { clave:'ultima_entrega',  rotulo:'Última entrega',  num:true,
+    val:f=>f.ultima_entrega?_ms(f.ultima_entrega):null,
+    txt:f=>f.ultima_entrega?esc(new Date(f.ultima_entrega).toLocaleDateString('es-CL')):'—' },
+  { clave:'firmware',   rotulo:'Firmware',  num:false,
+    val:f=>f.firmware||'',             txt:f=>esc(f.firmware||'—') },
+  { clave:'ciclo',      rotulo:'Ciclo',     num:true,
+    val:f=>f.ciclo==null?null:Number(f.ciclo), txt:f=>f.ciclo==null?'—':String(f.ciclo) },
+  { clave:'sensor',     rotulo:'Sensor',    num:false,
+    val:f=>f.sensor_ok===false?'falla':f.sensor_ok===true?'ok':'',
+    txt:f=>f.sensor_ok===false?'<span class="eq-ojo">falla</span>'
+          :f.sensor_ok===true?'ok':'—' },
+];
+
+const _ms = (t) => { const d = new Date(t); return isNaN(d) ? null : d.getTime(); };
+
+/* Los mismos tramos del dashboard del cliente, para que -70 dBm no signifique
+   una cosa en una pantalla y otra en la otra. */
+function textoSenal(dbm){
+    if (dbm == null) return '—';
+    const v = Number(dbm);
+    if (!Number.isFinite(v) || v >= 0 || v < -120) return '—';
+    const t = v >= -67 ? 'buena' : v >= -75 ? 'justa' : v >= -85 ? 'débil' : 'muy débil';
+    return '<span class="' + (v < -85 ? 'eq-ojo' : '') + '">' + v + ' dBm · ' + t + '</span>';
+}
+
+/* «hace 3 h» se lee de un vistazo; una fecha con hora hay que restarla mentalmente.
+   Pasadas 48 h vuelve la fecha, porque «hace 260 h» ya no dice nada. */
+function haceCuanto(t){
+    const ms = _ms(t); if (ms == null) return 'nunca';
+    const h = (Date.now() - ms) / 3600000;
+    if (h < 1)  return 'hace ' + Math.max(1, Math.round(h * 60)) + ' min';
+    if (h < 48) return 'hace ' + Math.round(h) + ' h';
+    return new Date(ms).toLocaleDateString('es-CL');
+}
+
+function eqOrdenadas(){
+    const col = EQ_COLS.find(c => c.clave === EQ_ORDEN.col) || EQ_COLS[1];
+    const s = EQ_ORDEN.asc ? 1 : -1;
+    return visibles().slice().sort((a, b) => {
+        const x = col.val(a), y = col.val(b);
+        /* Lo que no tiene valor va SIEMPRE al final, se ordene como se ordene:
+           al buscar la bateria mas baja, una fila sin dato arriba se lee como
+           si fuera la peor y no lo es. */
+        if (x == null && y == null) return 0;
+        if (x == null) return 1;
+        if (y == null) return -1;
+        if (typeof x === 'number' && typeof y === 'number') return (x - y) * s;
+        return String(x).localeCompare(String(y), 'es') * s;
+    });
+}
+
+function pintarEquipos(){
+    const filas = eqOrdenadas();
+    const flecha = (c) => c.clave === EQ_ORDEN.col ? (EQ_ORDEN.asc ? ' ▲' : ' ▼') : '';
+    const cab = '<thead><tr>' + EQ_COLS.map(c =>
+        '<th class="' + (c.num ? 'num' : '') + '" data-c="' + c.clave + '" '
+        + 'aria-sort="' + (c.clave === EQ_ORDEN.col ? (EQ_ORDEN.asc ? 'ascending' : 'descending') : 'none') + '">'
+        + esc(c.rotulo) + flecha(c) + '</th>').join('') + '</tr></thead>';
+    const cuerpo = filas.length
+        ? '<tbody>' + filas.map(f => '<tr>' + EQ_COLS.map(c =>
+              '<td class="' + [c.num ? 'num' : '', c.cls || ''].filter(Boolean).join(' ') + '">'
+              + c.txt(f) + '</td>').join('') + '</tr>').join('') + '</tbody>'
+        : '';
+    $('tabla-equipos').innerHTML = cab + cuerpo;
+    if (!filas.length){
+        $('tabla-equipos').insertAdjacentHTML('afterend',
+            '<div class="eq-vacio" id="eq-vacio">' + textoVacio() + '</div>');
+    } else {
+        const v = $('eq-vacio'); if (v) v.remove();
+    }
+    const bajas = filas.filter(f => f.bateria_pct != null && f.bateria_pct < 30).length;
+    const mudos = filas.filter(f => f.color === 'gris').length;
+    $('eq-resumen').textContent =
+        filas.length + ' equipo' + (filas.length === 1 ? '' : 's')
+        + (bajas ? ' · ' + bajas + ' con batería bajo 30 %' : '')
+        + (mudos ? ' · ' + mudos + ' sin dato fiable' : '');
+
+    $('tabla-equipos').querySelectorAll('thead th').forEach(th => {
+        th.addEventListener('click', () => {
+            const c = th.dataset.c;
+            /* Segundo clic invierte. La primera vez que se pide una columna
+               numerica se ordena DESCENDENTE: quien pincha «Batería» busca la
+               mas baja... salvo que ahi lo interesante es justamente el minimo,
+               asi que las numericas arrancan ascendentes y las de texto tambien.
+               Se deja explicito para no adivinar en cada columna. */
+            if (EQ_ORDEN.col === c) EQ_ORDEN.asc = !EQ_ORDEN.asc;
+            else EQ_ORDEN = { col: c, asc: true };
+            pintarEquipos();
+        });
+    });
+}
+
+function eqCSV(){
+    const esc2 = (v) => {
+        const t = String(v == null ? '' : v);
+        return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    const filas = eqOrdenadas();
+    /* El CSV lleva ademas direccion y telefono, que en la tabla no caben pero en
+       una planilla sirven. Todo lo demas sale de EQ_COLS, o sea en el mismo
+       orden que se esta viendo. */
+    const cab = EQ_COLS.map(c => c.clave).concat(['direccion', 'telefono']);
+    const cuerpo = filas.map(f => EQ_COLS.map(c => {
+        const v = c.val(f);
+        if (c.clave === 'ultima_conexion' || c.clave === 'ultima_entrega')
+            return v == null ? '' : new Date(v).toLocaleString('es-CL');
+        return v == null ? '' : v;
+    }).concat([f.direccion || '', f.telefono || '']).map(esc2).join(';')).join('\n');
+    const txt = cab.join(';') + '\n' + cuerpo + '\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + txt], { type:'text/csv;charset=utf-8' }));
+    a.download = 'equipos-levelgas-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function cambiarVista(v){
+    VISTA = v;
+    const esMapa = (v === 'mapa');
+    $('tab-mapa').setAttribute('aria-selected', String(esMapa));
+    $('tab-equipos').setAttribute('aria-selected', String(!esMapa));
+    $('panel-mapa').hidden    = !esMapa;
+    $('panel-equipos').hidden =  esMapa;
+    /* Leaflet mide el contenedor una sola vez. Al volver del otro panel el mapa
+       estuvo con display:none y su medida quedo en cero: sin esto aparece gris
+       hasta que alguien mueve la ventana. pintar() ya llama a invalidateSize(). */
+    if (esMapa) pintar(); else pintarEquipos();
 }
 
 /* Los contadores van en los propios chips: asi "Urgentes 0" se lee ANTES de
@@ -2096,10 +2346,18 @@ document.querySelectorAll('.chip').forEach(ch => {
     ch.addEventListener('click', () => {
         FILTRO = ch.dataset.f;
         document.querySelectorAll('.chip').forEach(o => o.setAttribute('aria-pressed', String(o === ch)));
-        pintar();
+        repintarVista();
     });
 });
-$('buscar').addEventListener('input', pintar);
+$('buscar').addEventListener('input', repintarVista);
+
+/* [d15] Un solo punto para «vuelve a dibujar lo que se esta viendo». Llamar a
+   pintar() desde el filtro cuando la pestaña abierta es la de equipos dejaba la
+   tabla con el filtro anterior. */
+function repintarVista(){ if (VISTA === 'equipos') pintarEquipos(); else pintar(); }
+$('tab-mapa').addEventListener('click',    () => cambiarVista('mapa'));
+$('tab-equipos').addEventListener('click', () => cambiarVista('equipos'));
+$('btn-eq-csv').addEventListener('click', eqCSV);
 
 /* ── Sesion ya abierta ────────────────────────────────────────────────────── */
 (async function(){
