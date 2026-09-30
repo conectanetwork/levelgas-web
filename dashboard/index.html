@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p29-bruto-bajo-tara-20260926">
+<meta name="lg-build" content="p30-ultimo-dato-20260930">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -496,6 +496,9 @@ header{
 .rc-status-card .dp-label{display:flex;align-items:center;margin-bottom:0}
 .rc-hb-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
 .rc-hb-txt{font-size:13px;font-weight:700;color:var(--text);flex:1}
+.rc-ult-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.rc-ult-txt{font-size:12px;color:var(--muted,#6b7280);flex:1;line-height:1.35}
+.rc-ult-txt b{color:var(--text);font-weight:600}
 .rc-bat-row{display:flex;align-items:center;gap:10px;padding:5px 0}
 .rc-bat-text{font-size:12px;font-weight:600;min-width:80px;text-align:right}
 .rc-btn{width:26px;height:26px;font-size:14px}
@@ -967,6 +970,12 @@ header{
       <div class="rc-hb-row">
         <div id="heartbeat-dot" class="hb-dot"></div>
         <span id="heartbeat-txt" class="rc-hb-txt">ESP32C —</span>
+      </div>
+      <!-- [p30] Fecha y hora del ultimo dato recibido. Desde v81.18 el equipo ya
+           no abre la red LevelGas por su cuenta, asi que este renglon es el
+           unico aviso que tiene el cliente de que su bascula dejo de reportar. -->
+      <div class="rc-ult-row">
+        <span id="ult-dato" class="rc-ult-txt" title="Fecha y hora del último dato que llegó a LevelGas">Último dato: —</span>
       </div>
       <div class="rc-bat-row">
         <svg class="bat-svg" width="36" height="18" viewBox="0 0 36 18" xmlns="http://www.w3.org/2000/svg">
@@ -3049,6 +3058,34 @@ function _updateBatStatus(v, pct){
    habla de pilas primero.
 ═══════════════════════════════════════════════════════════════════════════ */
 const SIN_CONTACTO_MIN = 30 * 60;   // 30 h en minutos
+/* [p30] Fecha y hora del ultimo dato, en hora de Chile, con el «hace cuanto»
+   al lado porque es lo que la gente lee de verdad. El umbral de 30 h es el
+   mismo que usa el aviso rojo: el equipo saluda una vez al dia, asi que un
+   silencio mayor ya no se explica por falta de consumo. */
+function _pintarUltimoDato(ms){
+    const el = document.getElementById("ult-dato");
+    if (!el) return;
+    if (!ms){
+        el.innerHTML = "Último dato: <b>nunca</b>";
+        el.style.color = "";
+        el.title = "Esta báscula todavía no ha enviado ningún dato";
+        return;
+    }
+    const min   = (Date.now() - ms) / 60000;
+    const fecha = new Date(ms).toLocaleString('es-CL', {
+        timeZone: 'America/Santiago',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    let hace;
+    if      (min <    60) hace = Math.max(1, Math.round(min)) + " min";
+    else if (min <  2880) hace = Math.round(min / 60)   + " h";
+    else                  hace = Math.round(min / 1440) + " días";
+    el.innerHTML = "Último dato: <b>" + fecha + "</b> · hace " + hace;
+    el.style.color = (min >= SIN_CONTACTO_MIN) ? "var(--red)" : "";
+    el.title = "Fecha y hora del último dato que llegó a LevelGas, "
+             + "sea una medición o el saludo diario del equipo";
+}
 
 function avisoRedPerdida(minutosDesdeUltimoDato){
     const box = document.getElementById("red-box");
@@ -3070,24 +3107,56 @@ function avisoRedPerdida(minutosDesdeUltimoDato){
           + "Si después de eso sigue sin reportar, pulsa <b>una vez</b> el botón <b>RESET</b> del "
           + "lateral y conéctate a la red <b>LevelGas</b> que aparecerá, para devolverle tu wifi.";
     } else {
+        /* [p30] Texto alineado con el firmware v81.18: el equipo ya NO abre la
+           red LevelGas por su cuenta cada 24 h. Ahora solo aparece cuando se
+           pulsa RESET, asi que esa instruccion dejo de ser un consejo y paso a
+           ser el unico camino. Tambien se avisa de los ~30 s que tarda: sin
+           eso la gente vuelve a apretar a los diez segundos y reinicia la
+           cuenta sin saberlo. */
         msg.innerHTML =
             "<b class=\"t\">Tu báscula perdió la red y lleva " + cuanto + " sin reportar.</b>"
-          + "Pulsa <b>una vez</b> el botón <b>RESET</b> del lateral del equipo. En unos segundos "
-          + "aparecerá la red <b>LevelGas</b>: conéctate a ella desde tu teléfono para devolverle tu wifi. "
-          + "<span style=\"opacity:.85\">La red dura 5 minutos. Si no llegara a aparecer, apaga el equipo, "
-          + "espera un minuto completo y enciéndelo — encenderlo antes no sirve, porque la báscula no "
-          + "alcanza a darse cuenta de que la apagaste. Mientras tanto, los datos de abajo son los "
-          + "últimos que alcanzó a enviar.</span>";
+          + "Pulsa <b>una vez</b> el botón <b>RESET</b> del lateral del equipo y "
+          + "<b>espera unos 30 segundos</b>: aparecerá la red <b>LevelGas</b>. Conéctate a ella "
+          + "desde tu teléfono y vuelve a indicarle tu wifi. "
+          + "<span style=\"opacity:.85\">La red dura 5 minutos y se mantiene abierta mientras "
+          + "estés usando la pantalla de configuración. Si se cierra antes de que termines, vuelve "
+          + "a pulsar RESET y empieza de nuevo — puedes hacerlo las veces que haga falta. "
+          + "Mientras tanto, los datos de abajo son los últimos que alcanzó a enviar.</span>";
     }
     box.classList.add("on");
 }
 
+/* ── [p30] DE QUE TABLA SALE «LA ULTIMA VEZ QUE SUPIMOS DE ELLA» ───────────
+   Esta funcion miraba solo la ultima fila de sensor_data, y eso es la ultima
+   MEDICION, no el ultimo CONTACTO. No es lo mismo: el latido diario del
+   firmware es un PATCH a devices y no deja fila en sensor_data (ver
+   sendHeartbeatToSupabase(), «sin nueva fila en sensor_data»). O sea que una
+   bascula sana cuyo cilindro no consume —una segunda vivienda, un cilindro de
+   repuesto— aparecia como «Sin contacto 30 h» mientras seguia saludando cada
+   dia sin falta. El propio comentario de p14, aqui debajo, ya sabia que el
+   latido existia; la consulta seguia sin mirarlo.
+   El portal de distribuidoras nunca tuvo este problema: usa devices.last_seen_at
+   desde el principio. Era otra vez el dashboard y el portal leyendo de sitios
+   distintos, como paso con el consumo.
+   Ahora se toma el MAS RECIENTE de los dos. last_seen_at lo mantiene al dia el
+   trigger update_last_seen() con cualquier dato que venga del equipo, y la
+   ultima medicion se conserva como respaldo por si esa columna viniera nula en
+   un equipo antiguo. */
 async function checkHeartbeat(){
     if (!window.currentDeviceId) return;
     try {
-        const { data } = await db.from("sensor_data")
-            .select("created_at").eq("device_id", window.currentDeviceId)
-            .order("created_at", { ascending: false }).limit(1);
+        const [ rMed, rDev ] = await Promise.all([
+            db.from("sensor_data").select("created_at")
+              .eq("device_id", window.currentDeviceId)
+              .order("created_at", { ascending: false }).limit(1),
+            db.from("devices").select("last_seen_at")
+              .eq("device_id", window.currentDeviceId).maybeSingle()
+        ]);
+        const tMed = rMed?.data?.length ? _fechaUTC(rMed.data[0].created_at).getTime() : 0;
+        const tCon = rDev?.data?.last_seen_at ? _fechaUTC(rDev.data.last_seen_at).getTime() : 0;
+        const tUlt = Math.max(tMed, tCon);
+        _pintarUltimoDato(tUlt);
+        const data = tUlt ? [{ created_at: new Date(tUlt).toISOString() }] : [];
         const dot = document.getElementById("heartbeat-dot");
         const txt = document.getElementById("heartbeat-txt");
         const dp  = document.getElementById("dp-dot");
@@ -3104,7 +3173,7 @@ async function checkHeartbeat(){
             avisoRedPerdida(null);
             return;
         }
-        const min = (Date.now() - _fechaUTC(data[0].created_at).getTime()) / 60000;
+        const min = (Date.now() - tUlt) / 60000;
         avisoRedPerdida(min);
         // v80.77: firmware solo envía al superar umbral de consumo (sin heartbeat horario).
         // Umbrales ajustados: < 24h = activo, < 7 días = sin actividad reciente, ≥ 7d = sin señal.
