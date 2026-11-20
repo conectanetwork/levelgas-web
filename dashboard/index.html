@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p31-peso-bascula-20261120b">
+<meta name="lg-build" content="p32-bajo-la-tara-cero-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2077,6 +2077,50 @@ function _ultimaValida(filas, tara){
     for (const f of filas) if (_netoDe(f, tara) !== null) return f;
     return null;
 }
+/* [p32] POR DEBAJO DE LA TARA SE MUESTRA 0,00 — no la medición anterior.
+   ───────────────────────────────────────────────────────────────────────
+   El 20-11 el dashboard mostraba «0,35 kg · 2,3 % · Crítico» con la balanza
+   vacía, y eso invita al cliente a creer que todavía le queda algo de gas.
+   Los 0,35 kg eran reales pero viejos: salen de la fila 1640 (15,646 kg
+   brutos, 20-11 21:48), medida antes de que se retirara el cilindro.
+   _ultimaValida() retrocede hasta la última fila que supera la banda de tara
+   y se quedaba ahí para siempre, porque ninguna fila posterior la supera.
+
+   Mover CILINDRO_MIN_FACTOR no arregla nada: 0,9 × 15,3 = 13,77 y la lectura
+   retenida es 15,646, la pasa con 1,88 kg de sobra. Habría que subir el factor
+   sobre 1,023 y entonces ningún cilindro casi vacío volvería a verse.
+
+   La regla es la del usuario: si lo que hay sobre la plataforma no llega a la
+   tara, no hay gas que mostrar — se muestra 0,00. Lo demás cae solo:
+   updateDaysRemaining() ya trata net ≤ 0 como «sin datos» y checkEarlyAlert()
+   no dispara con 0. No hace falta un estado ni un rótulo nuevo.
+
+   LA ÚNICA CONDICIÓN QUE SE AGREGA: tienen que ser las DOS lecturas más
+   recientes, no una. Con una sola se reintroduce el defecto p23 — la báscula
+   manda 0,000 kg intercalados entre lecturas buenas, confirmado en terreno con
+   un cilindro de 31,2 kg encima— y el cliente vería 0,00 kg y 0 % con el
+   cilindro lleno delante. Eso es peor que el defecto que se está arreglando.
+   Dos filas son ≥ 30 min con el grid de 15,05 min, y un cero intercalado nunca
+   las cumple porque la fila anterior está por encima de la tara.
+
+   Aquí 0,000 kg SÍ se acepta como medición, al revés que _lecturaPlausible():
+   una plataforma vacía pesa cero. El −999 no: un sensor que falla no es una
+   balanza vacía. Con la tara sin configurar la regla se desactiva sola.      */
+const BAJO_TARA_FILAS = 2;
+function _bajoLaTara(filas, tara){
+    const t = parseFloat(tara);
+    if (!(Number.isFinite(t) && t > 0)) return false;          // tara sin configurar
+    if (!Array.isArray(filas) || filas.length < BAJO_TARA_FILAS) return false;
+    for (let i = 0; i < BAJO_TARA_FILAS; i++){
+        const w = parseFloat(filas[i]?.weight);
+        if (!Number.isFinite(w) || w <= -900) return false;    // fallo del sensor
+        const e = parseFloat(filas[i]?.empty_weight);
+        const bruto = (Number.isFinite(e) && e > 0) ? w + e : w;
+        if (bruto < 0 || bruto > LECTURA_MAX_KG) return false; // absurdo
+        if (bruto > t) return false;                           // hay cilindro con gas
+    }
+    return true;
+}
 function fmtDate(iso){
     const d = toChileDate(iso);
     return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
@@ -3553,13 +3597,23 @@ function _pintarPesoBascula(row, tara){
         el.textContent = 'error de lectura del sensor';
         el.className   = 'cal-val bruto-err';
         el.title       = 'La báscula no pudo leer la celda y envió el código de error.';
+    } else if (w >= 0 && w < LECTURA_MIN_KG){
+        /* [p32] CORRECCIÓN DE p31. Ayer esto se pintaba en rojo como «el sensor
+           no entregó una lectura utilizable», apoyado solo en el episodio p23.
+           Los datos no sostienen esa lectura única: las tres filas con peso 0
+           que hay en toda la base traen weight_spread distinto de cero, o sea
+           que el HX711 sí promedió sus cinco muestras. Un cero puede ser una
+           plataforma vacía o un fallo, y este campo no tiene cómo distinguirlos,
+           así que no afirma ninguno de los dos. Quien los distingue es
+           _bajoLaTara(), que mira dos filas. */
+        el.textContent = '0.000 kg';
+        el.className   = 'cal-val bruto';
+        el.title       = 'La balanza no registra peso: o no tiene nada encima, '
+                       + 'o el sensor no entregó dato en este ciclo.';
     } else if (!_lecturaPlausible(w)){
-        /* 0,000 kg es lo que manda el HX711 cuando no entrega dato — medido en
-           terreno con un cilindro de 31,2 kg encima. Mostrar aquí el aviso de
-           tara seria culpar al cilindro de un fallo del sensor. */
         el.textContent = w.toFixed(3) + ' kg';
         el.className   = 'cal-val bruto-err';
-        el.title       = 'El sensor no entregó una lectura utilizable.';
+        el.title       = 'Lectura fuera del rango utilizable del sensor.';
     } else {
         el.textContent = w.toFixed(3) + ' kg';
         el.className   = 'cal-val bruto';
@@ -4049,12 +4103,16 @@ async function pollLatest(){
             .limit(5);                                    // [p23] por si la última no sirve
         if (error){ console.warn("[pollLatest]", error); return; }
         if (!data?.length) return;
-        const latest = _ultimaValida(data, empty);        // [p23]
+        /* [p32] Con la plataforma bajo la tara se usa la fila MÁS RECIENTE
+           —no la última válida— para que la fecha y la batería sean las de
+           ahora, y el neto se fuerza a 0. */
+        const bajoTara = _bajoLaTara(data, empty);
+        const latest = bajoTara ? data[0] : _ultimaValida(data, empty);   // [p23]
         if (!latest){
             console.warn('[pollLatest] ninguna de las últimas 5 lecturas es utilizable — se conserva la anterior');
             return;                                       // no pisar la pantalla con un cero
         }
-        const net = _netoDe(latest, empty);   // neto real medido (puede superar el nominal si el cilindro trae más gas)
+        const net = bajoTara ? 0 : _netoDe(latest, empty);   // [p32] · neto real medido (puede superar el nominal si el cilindro trae más gas)
         const pct = full > empty ? (net / (full - empty)) * 100 : 0;   // gauge puede superar 100%
         // Actualizar display
         window._lastKnownNet      = net;
@@ -4321,10 +4379,11 @@ async function updateAll(){
             }
             return;
         }
-        const latest = _ultimaValida(data, empty) || data[0];   // [p23]
+        const bajoTara = _bajoLaTara(data, empty);              // [p32]
+        const latest = bajoTara ? data[0] : (_ultimaValida(data, empty) || data[0]);   // [p23]
         window._ultimaLecturaMs = _fechaUTC(latest.created_at).getTime();   // [p16]
         updateBattery(parseFloat(latest.battery_voltage || 4.0));
-        const netCrudo = _netoDe(latest, empty);                // [p23]
+        const netCrudo = bajoTara ? 0 : _netoDe(latest, empty);  // [p32] [p23]
         if (netCrudo === null){
             /* Ninguna lectura del periodo es utilizable. Antes se escribía 0,00 kg;
                ahora se conserva lo último bueno que se conoce y se dice que el dato
