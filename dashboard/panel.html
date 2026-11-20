@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="lg-build" content="panel-v1-20261120">
+<meta name="lg-build" content="panel-v2-20261120">
 <title>LevelGas · Panel de cilindros</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
       integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0"
@@ -48,10 +48,13 @@ body{background:var(--bg);color:var(--text);min-height:100vh;
 .btn:hover{background:var(--card2)}
 .sello{font-size:11px;color:var(--muted)}
 
-/* 1 columna en teléfono, 2 desde 680px. Con 4 básculas quedan 2x2; con 3, dos
-   arriba y una abajo a ancho completo, que se lee mejor que tres apretadas. */
+/* 1 columna en teléfono, 2 desde 680px, 3 desde 1040px solo cuando hay 5 o 6.
+   Con 4 quedan 2x2; con 6, 3x2; con 3, dos arriba y una abajo a ancho completo,
+   que se lee mejor que tres apretadas. No se pasa a 3 columnas con 4 o menos:
+   el recuadro se angosta sin necesidad y el gauge pierde tamaño. */
 .rejilla{display:grid;gap:14px;grid-template-columns:1fr}
 @media(min-width:680px){ .rejilla{grid-template-columns:repeat(2,1fr)} }
+@media(min-width:1040px){ .rejilla.n5, .rejilla.n6{grid-template-columns:repeat(3,1fr)} }
 .rejilla.n1{grid-template-columns:1fr;max-width:520px}
 @media(min-width:680px){ .rejilla.n3 > .tile:last-child{grid-column:1 / -1} }
 
@@ -120,7 +123,12 @@ const SUPABASE_URL      = "https://uooftjtllmsnugdcldvc.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_uh1UiFUzu2mBDUGvBIR5dA_YQ3C5XBW";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const MAX_TILES   = 4;
+const MAX_TILES   = 6;        // 3x2 en escritorio desde 1040px
+/* Un equipo que no reporta hace más de esto lleva un chip de aviso. El grid del
+   temporizador es de 15,05 min, así que 2 h son ocho ciclos perdidos: ya no es
+   un tropiezo de wifi. */
+const SIN_REPORTE_AVISO_MS = 2 * 3600 * 1000;
+const SIN_REPORTE_GRAVE_MS = 48 * 3600 * 1000;
 const DIAS_GRAF   = 14;
 const REFRESCO_MS = 60000;
 const ARC         = Math.PI * 80;
@@ -327,6 +335,33 @@ function chipBateria(v){
     const cls = n <= 3.70 ? 'c-bad' : n <= 3.90 ? 'c-warn' : 'c-ok';
     return '<span class="chip ' + cls + '"><i class="fas fa-battery-half"></i> ' + n.toFixed(2) + 'V</span>';
 }
+/* «Sin dato» a secas no distingue un wifi caído hace diez minutos de un equipo
+   apagado hace dos meses, y para una flota esa es justo la diferencia que
+   importa: la primera no se atiende, la segunda sí. */
+function desdeUltimoReporte(iso){
+    if (!iso) return null;
+    const ms = Date.now() - _fechaUTC(iso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return null;
+    const h = ms / 3600000;
+    return { ms, texto: h < 48 ? Math.round(h) + ' h' : Math.round(h / 24) + ' d' };
+}
+function chipUltimoReporte(iso){
+    if (!iso) return '<span class="chip c-bad"><i class="fas fa-link-slash"></i> nunca reportó</span>';
+    const d = desdeUltimoReporte(iso);
+    if (!d || d.ms < SIN_REPORTE_AVISO_MS) return '';          // al día: sin ruido
+    const cls = d.ms >= SIN_REPORTE_GRAVE_MS ? 'c-bad' : 'c-warn';
+    return '<span class="chip ' + cls + '"><i class="fas fa-link-slash"></i> '
+         + d.texto + ' sin reportar</span>';
+}
+/* El texto bajo el número cuando no hay ninguna lectura en la ventana. Dice
+   DESDE CUÁNDO, no solo que falta: last_seen_at puede ser muy anterior a la
+   ventana de 14 días del gráfico, que es el caso de un equipo retirado. */
+function sinLecturasTxt(equipo){
+    const iso = equipo && equipo.last_seen_at;
+    if (!iso) return 'nunca reportó';
+    const d = toChileDate(iso);
+    return 'sin reportar desde el ' + pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth()+1);
+}
 function chipSenal(rssi){
     const v = parseInt(rssi, 10);
     if (!Number.isFinite(v) || v >= 0 || v < -120) return '';
@@ -373,7 +408,15 @@ function pintarTile(t){
          + 'title="Abrir el dashboard de esta báscula">'
          + '<div class="t-hdr"><div><div class="t-nom">' + esc(nombre) + '</div>'
          + '<div class="t-mac">' + esc(mac) + '</div></div>'
-         + '<div class="t-chips">' + chipBateria(equipo.battery_voltage)
+         /* La fecha de la última LECTURA manda sobre devices.last_seen_at: es el
+            dato que prueba que el equipo habló. Si last_seen_at viniera vacío
+            —pasa, y es una columna que escribe otro camino— el recuadro decía
+            «nunca reportó» en rojo junto a una medición de hace diez minutos.
+            Sin lecturas en la ventana se cae a last_seen_at, que es justo el
+            caso del equipo retirado hace meses. */
+         + '<div class="t-chips">'
+         + chipUltimoReporte((filas && filas[0] && filas[0].created_at) || equipo.last_seen_at)
+         + chipBateria(equipo.battery_voltage)
          + chipSenal(equipo.last_rssi) + '</div></div>'
          + '<div class="visores">'
          +   '<div class="g-wrap">' + svgGauge(pct, mudo)
@@ -385,7 +428,7 @@ function pintarTile(t){
          +   '<div class="digital"><div class="d-lbl">Peso neto</div>'
          +     '<div class="d-num' + (mudo ? ' mudo' : '') + '">'
          +       (mudo ? 'sin dato' : neto.toFixed(2) + '<small>kg</small>') + '</div>'
-         +     '<div class="d-sub">' + (ultima ? fmtCorta(ultima.created_at) : 'sin lecturas') + '</div>'
+         +     '<div class="d-sub">' + (ultima ? fmtCorta(ultima.created_at) : sinLecturasTxt(equipo)) + '</div>'
          +   '</div>'
          + '</div>'
          + '<div class="graf"><div class="graf-hdr">'
