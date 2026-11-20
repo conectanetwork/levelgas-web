@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p36-clave-requiere-codigo-20261120">
+<meta name="lg-build" content="p37-equipo-inexistente-en-la-puerta-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -201,7 +201,10 @@ header{
 /* [p35] Salida cuando la MAC abierta no existe en Supabase. Posicion fija:
    asi no depende de que el resto de la pagina se haya llegado a pintar, que es
    justo lo que NO pasa cuando updateAll() sale por la rama de "no encontrado". */
-#equipo-inexistente{position:fixed;inset:0;z-index:9999;display:none;
+/* [p37] z-index por encima del modal de acceso: ese modal se abre ANTES de que
+   updateAll() llegue a su rama de "no encontrado", asi que el aviso tiene que
+   poder taparlo o no lo ve nadie. Fue justo lo que paso el 20-11. */
+#equipo-inexistente{position:fixed;inset:0;z-index:2147483000;display:none;
   align-items:center;justify-content:center;background:rgba(15,23,42,.82);padding:18px}
 .ei-caja{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:22px;max-width:420px;text-align:center}
@@ -1512,6 +1515,13 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                         try { abrirRecuperacion(); } catch(e){ console.warn('[p36]', e); }
                         return false;
                     }
+                    if (r === 'sin_dispositivo'){
+                        /* [p37] Ultima red. Si pese a todo se llega hasta aqui
+                           con una MAC que no existe, el aviso tiene salida en
+                           vez de ser un callejon. */
+                        _mostrarEquipoInexistente(device);
+                        return false;
+                    }
                     const motivos = {
                         clave_actual_incorrecta: 'No se pudo cambiar la clave: la clave actual no coincide. Usa "¿Olvidaste tu clave?" para recuperarla por correo.',
                         correo_requerido:        'Necesitas indicar un correo de recuperación. Es el único modo de recuperar el acceso si olvidas la clave.',
@@ -1557,7 +1567,29 @@ async function _validarClaveLocalContraSupabase(){
                 window._accessRpcDisponible = true;
                 const r = String(data || '');
                 if (r === 'ok') { window._accessKeyExistsRemote = true;  return { ok:true }; }
-                if (r === 'sin_clave_remota'){ window._accessKeyExistsRemote = false; return { ok:false, motivo:'sin_clave_remota' }; }
+                if (r === 'sin_clave_remota'){
+                    /* [p37] verify_access_key devuelve 'sin_clave_remota' tanto
+                       cuando el equipo existe sin clave (estado de fabrica,
+                       legitimo) como cuando el equipo NO EXISTE. Son dos cosas
+                       muy distintas y aqui se confundian: con una MAC inventada
+                       el dashboard concluia "no hay clave", abria el modo CREAR,
+                       el cliente escribia clave y correo, y recien al pulsar
+                       Guardar aparecia "Esta bascula no esta registrada".
+                       Medido el 20-11 con la MAC 11:22:33:44:55:66.
+                       Una consulta de una columna separa los dos casos. */
+                    let existe = true;
+                    try {
+                        const q = await db.from('devices').select('device_id')
+                                          .eq('device_mac', device).maybeSingle();
+                        if (!q.error) existe = !!q.data;
+                    } catch(e){ console.warn('[p37] no se pudo comprobar el equipo', e); }
+                    if (!existe){
+                        window._accessKeyExistsRemote = false;
+                        return { ok:false, motivo:'equipo_inexistente' };
+                    }
+                    window._accessKeyExistsRemote = false;
+                    return { ok:false, motivo:'sin_clave_remota' };
+                }
                 if (r === 'no_coincide'){ window._accessKeyExistsRemote = true; return { ok:false, motivo:'clave_desactualizada' }; }
                 return { ok:false, motivo:'error' };
             }
@@ -1574,6 +1606,10 @@ async function _validarClaveLocalContraSupabase(){
     }
 }
 function _bloquearPorClaveInvalida(motivo){
+    /* [p37] Antes que nada: si el equipo no existe, no hay clave que pedir.
+       Mostrar el modal de acceso aqui es mandar al cliente a rellenar un
+       formulario que no puede funcionar. */
+    if (motivo === 'equipo_inexistente'){ _mostrarEquipoInexistente(device); return; }
     _finalizarSesionConsulta();
     window._accessGranted = false;
     window._modalReconnectOnly = false;
@@ -1730,6 +1766,10 @@ async function procesarIngresoClave(){
         if (!validacion.ok){
             // Limpiar: la clave ingresada no coincide con Supabase.
             _borrarClaveLocal();
+            if (validacion.motivo === 'equipo_inexistente'){   // [p37]
+                _mostrarEquipoInexistente(device);
+                return;
+            }
             if (validacion.motivo === 'sin_clave_remota'){
                 alert('No hay clave configurada en Supabase. Crea una nueva clave.');
                 window._forceCreateAccessKey = true;
@@ -2636,6 +2676,9 @@ function lgQuitarBasculaActual(){
 }
 function _mostrarEquipoInexistente(mac){
     window._macInexistente = mac;
+    /* [p37] Cerrar el modal de acceso: pedir una clave para un equipo que no
+       existe no tiene sentido, y dejarlo abierto debajo confunde. */
+    try { _modalAcceso(false); } catch(e){}
     const caja = document.getElementById('equipo-inexistente');
     const el   = document.getElementById('ei-mac');
     if (el)   el.textContent = mac || '—';
