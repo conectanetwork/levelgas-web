@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p31-peso-bascula-20261120">
+<meta name="lg-build" content="p31-peso-bascula-20261120b">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -215,7 +215,6 @@ header{
 .cal-val.bruto{color:var(--text);font-variant-numeric:tabular-nums}
 .cal-val.bruto-err{color:var(--red);font-size:10px;font-weight:700}
 .cal-bruto-when{font-size:9px;color:var(--muted);text-align:right;margin-top:2px}
-.cal-bruto-warn{font-size:9px;color:var(--orange);margin-top:5px;padding:4px 7px;background:var(--bg2);border-radius:5px;line-height:1.4}
 /* ── Estado de espera en panel de calibración ── */
 @keyframes pulse-wait{0%,100%{opacity:1}50%{opacity:.35}}
 .cal-val.waiting{color:var(--orange);font-size:10px;font-weight:700;animation:pulse-wait 1.2s infinite;letter-spacing:.2px}
@@ -861,7 +860,6 @@ header{
           <span class="cal-val bruto" id="cal-bruto">—</span>
         </div>
         <div class="cal-bruto-when" id="cal-bruto-when"></div>
-        <div class="cal-bruto-warn" id="cal-bruto-warn" style="display:none"></div>
         <div id="cal-no-data" class="cal-no-data">Sin calibración registrada</div>
         <div id="cal-data-rows" style="display:none">
           <div class="cal-row">
@@ -3537,10 +3535,8 @@ function updateChartColors(isHistory){
 function _pintarPesoBascula(row, tara){
     const el   = document.getElementById('cal-bruto');
     const when = document.getElementById('cal-bruto-when');
-    const warn = document.getElementById('cal-bruto-warn');
     if (!el) return;
     if (when) when.textContent = '';
-    if (warn) warn.style.display = 'none';
 
     if (!row){
         el.textContent = '—';
@@ -3575,14 +3571,6 @@ function _pintarPesoBascula(row, tara){
         when.textContent = pad(d.getUTCDate()) + '-' + pad(d.getUTCMonth()+1) + '-'
                          + d.getUTCFullYear() + ' ' + pad(d.getUTCHours()) + ':'
                          + pad(d.getUTCMinutes());
-    }
-    const t = parseFloat(tara);
-    if (warn && Number.isFinite(t) && t > 0 && _lecturaPlausible(w)
-        && w < t * CILINDRO_MIN_FACTOR){
-        warn.innerHTML = '<i class="fas fa-triangle-exclamation"></i> Por debajo de la tara '
-                       + 'configurada (' + t.toFixed(1) + ' kg). El sistema no lo cuenta como '
-                       + 'cilindro, por eso el neto y el porcentaje no se actualizan.';
-        warn.style.display = '';
     }
 }
 /* ═══════════════════════════════════════════
