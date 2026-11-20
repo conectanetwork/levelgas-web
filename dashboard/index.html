@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p33-cal-tara-20261120">
+<meta name="lg-build" content="p34-boton-panel-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -532,6 +532,11 @@ header{
       <select id="bascula-select" class="sel-bascula" onchange="lgCambiarBascula(this.value)" title="Cambiar de báscula"></select>
       <button class="btn-qr-hdr" onclick="lgRenombrarBascula()" title="Ponerle nombre a esta báscula"><i class="fas fa-pen"></i></button>
       <button class="btn-qr-hdr" onclick="lgAgregarBascula()" title="Agregar otra báscula"><i class="fas fa-plus"></i></button>
+      <!-- [p34] Panel multicilindro. Va DENTRO de #bascula-switch a proposito:
+           ese contenedor ya lo esconde lgRenderSelector() cuando el plan no es
+           empresa, asi que la puerta del plan no se escribe dos veces. -->
+      <button class="btn-qr-hdr" id="btn-panel-cilindros" onclick="abrirPanelCilindros()"
+              title="Ver todas tus básculas en una sola pantalla"><i class="fas fa-layer-group"></i> Panel</button>
     </div>
     <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
     <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
@@ -2473,10 +2478,18 @@ function lgRenderSelector(){
     // Con una sola bascula el desplegable no aporta, pero el boton "+" si:
     // es la unica forma de agregar la segunda.
     sel.style.display = lista.length >= 2 ? '' : 'none';
+    /* [p34] El panel multicilindro sigue la misma regla que el desplegable: con
+       una sola bascula no muestra nada que esta pantalla no muestre ya. */
+    const btnPanel = document.getElementById('btn-panel-cilindros');
+    if (btnPanel) btnPanel.style.display = lista.length >= 2 ? '' : 'none';
     sel.innerHTML = lista.map(b =>
         '<option value="' + b.mac + '"' + (b.mac === device ? ' selected' : '') + '>'
         + escapeHtml(lgNombreBascula(b)) + '</option>').join('');
 }
+/* [p34] Ruta RELATIVA: panel.html vive junto a index.html, asi que esto
+   resuelve igual desde /dashboard/ que desde /dashboard/index.html, con o sin
+   www, y tambien abriendo el archivo en local. */
+function abrirPanelCilindros(){ window.location.href = 'panel.html'; }
 function lgCambiarBascula(mac){
     if (!mac || mac === device) return;
     /* Recarga completa a proposito. La pagina guarda estado de modulo por
