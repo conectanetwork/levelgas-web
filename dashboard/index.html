@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p34-boton-panel-20261120">
+<meta name="lg-build" content="p35-salida-mac-inexistente-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -198,6 +198,20 @@ header{
 /* ── Panel de calibración (reemplaza card Plan actual) ── */
 .cal-panel{min-height:82px}
 .cal-panel .dp-label{margin-bottom:7px}
+/* [p35] Salida cuando la MAC abierta no existe en Supabase. Posicion fija:
+   asi no depende de que el resto de la pagina se haya llegado a pintar, que es
+   justo lo que NO pasa cuando updateAll() sale por la rama de "no encontrado". */
+#equipo-inexistente{position:fixed;inset:0;z-index:9999;display:none;
+  align-items:center;justify-content:center;background:rgba(15,23,42,.82);padding:18px}
+.ei-caja{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:22px;max-width:420px;text-align:center}
+.ei-caja i{font-size:30px;color:var(--orange);margin-bottom:10px}
+.ei-caja h3{font-size:15px;margin:0 0 8px}
+.ei-caja p{font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 16px}
+.ei-caja code{font-family:ui-monospace,monospace;color:var(--text);font-size:12px}
+.ei-btn{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);
+  padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;width:100%}
+.ei-btn.sec{background:transparent;color:var(--muted);border:1px solid var(--border);margin-top:8px}
 .cal-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid var(--border2)}
 .cal-row:last-of-type{border-bottom:none}
 .cal-lbl{font-size:10px;color:var(--muted)}
@@ -535,6 +549,9 @@ header{
       <!-- [p34] Panel multicilindro. Va DENTRO de #bascula-switch a proposito:
            ese contenedor ya lo esconde lgRenderSelector() cuando el plan no es
            empresa, asi que la puerta del plan no se escribe dos veces. -->
+      <!-- [p35] Quitar la bascula abierta de la lista de este navegador. -->
+      <button class="btn-qr-hdr" id="btn-quitar-bascula" onclick="lgQuitarBasculaActual()"
+              title="Quitar esta báscula de mi lista"><i class="fas fa-trash-can"></i></button>
       <button class="btn-qr-hdr" id="btn-panel-cilindros" onclick="abrirPanelCilindros()"
               title="Ver todas tus básculas en una sola pantalla"><i class="fas fa-layer-group"></i> Panel</button>
     </div>
@@ -546,6 +563,20 @@ header{
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
 </header>
+<!-- [p35] Salida de la pantalla "Dispositivo no encontrado". Antes no habia
+     ninguna: la MAC mala quedaba guardada en device_mac y en lg_basculas, el
+     selector se escondia porque el plan nunca se llegaba a leer, y quitar
+     ?device= de la URL volvia a abrir la misma MAC rota. -->
+<div id="equipo-inexistente">
+  <div class="ei-caja">
+    <i class="fas fa-triangle-exclamation"></i>
+    <h3>Esa báscula no existe</h3>
+    <p>No hay ninguna báscula registrada con la MAC <code id="ei-mac">—</code>.<br>
+       Revisa la etiqueta: son 12 dígitos hexadecimales.</p>
+    <button class="ei-btn" onclick="lgQuitarYSalir(window._macInexistente)">Quitar de mi lista y volver</button>
+    <button class="ei-btn sec" onclick="document.getElementById('equipo-inexistente').style.display='none'">Seguir aquí</button>
+  </div>
+</div>
 <!-- ─── MODAL ACCESO / RECONEXIÓN ─── -->
 <div id="modal-acceso" class="modal-acceso" style="display:none">
   <div class="modal-acceso-box">
@@ -2482,6 +2513,10 @@ function lgRenderSelector(){
        una sola bascula no muestra nada que esta pantalla no muestre ya. */
     const btnPanel = document.getElementById('btn-panel-cilindros');
     if (btnPanel) btnPanel.style.display = lista.length >= 2 ? '' : 'none';
+    /* [p35] La papelera sigue la misma regla: con una sola bascula quitarla
+       dejaria la lista vacia y al cliente sin a donde volver. */
+    const btnQuitar = document.getElementById('btn-quitar-bascula');
+    if (btnQuitar) btnQuitar.style.display = lista.length >= 2 ? '' : 'none';
     sel.innerHTML = lista.map(b =>
         '<option value="' + b.mac + '"' + (b.mac === device ? ' selected' : '') + '>'
         + escapeHtml(lgNombreBascula(b)) + '</option>').join('');
@@ -2509,7 +2544,7 @@ function lgRenombrarBascula(){
     lgRenderNombreActual();
     lgRenderSelector();
 }
-function lgAgregarBascula(){
+async function lgAgregarBascula(){
     const val = prompt('Escanea el QR de la otra báscula, o escribe aquí su MAC.\n\n'
                      + 'La MAC viene impresa en la etiqueta, con este aspecto:\n'
                      + '38:44:BE:8B:A3:00');
@@ -2521,8 +2556,63 @@ function lgAgregarBascula(){
         return;
     }
     if (mac === device){ alert('Esa es la báscula que ya tienes abierta.'); return; }
+    /* [p35] COMPROBAR ANTES DE REGISTRAR. Antes se guardaba en lg_basculas y se
+       navegaba en el acto, asi que una MAC mal tecleada quedaba en la lista para
+       siempre y dejaba al cliente en una pantalla sin salida. El formato ya
+       estaba validado; lo que faltaba era comprobar que la bascula EXISTE.
+       Es una consulta de una columna, la misma que updateAll() hace igual. */
+    try {
+        const { data, error } = await db.from('devices')
+            .select('device_mac').eq('device_mac', mac).maybeSingle();
+        if (error) throw error;
+        if (!data){
+            alert('No hay ninguna báscula registrada con la MAC ' + mac + '.\n\n'
+                + 'Revisa la etiqueta. Si la báscula es nueva, tiene que conectarse '
+                + 'a internet al menos una vez antes de poder agregarla.');
+            return;
+        }
+    } catch(e){
+        /* Sin red no se puede comprobar. Se pregunta en vez de decidir por el
+           usuario, y se le dice que es reversible. */
+        console.warn('[multibascula] no se pudo verificar la MAC', e);
+        if (!confirm('No se pudo comprobar esa báscula ahora (parece que no hay conexión).\n\n'
+                   + '¿Agregarla igual? Si la MAC está mal, podrás quitarla con el botón de la papelera.')) return;
+    }
     lgRegistrarBascula(mac);
     lgCambiarBascula(mac);   // pedirá su propia clave al abrirse
+}
+/* [p35] Quitar una bascula de la lista LOCAL y salir a otra. No toca Supabase:
+   lg_basculas es solo la lista de este navegador, la bascula sigue existiendo. */
+function lgQuitarBascula(mac){
+    if (!mac) return;
+    lgGuardarBasculas(lgBasculas().filter(b => b.mac !== mac));
+}
+function lgQuitarYSalir(mac){
+    if (!mac) mac = device;
+    lgQuitarBascula(mac);
+    const otras = lgBasculas().filter(b => b.mac !== mac);
+    /* device_mac es la "ultima bascula abierta" y es GLOBAL a proposito (p11).
+       Si queda apuntando a la MAC mala, volver sin ?device= reabre el problema. */
+    try { localStorage.removeItem('device_mac'); } catch(e){}
+    window.location.href = otras.length
+        ? window.location.pathname + '?device=' + encodeURIComponent(otras[0].mac.replace(/:/g, ''))
+        : window.location.pathname;
+}
+function lgQuitarBasculaActual(){
+    const lista = lgBasculas();
+    const b = lista.find(x => x.mac === device);
+    const nom = lgNombreBascula(b || { mac: device });
+    if (!confirm('¿Quitar «' + nom + '» de tu lista?\n\n'
+               + 'Solo se quita de la lista de ESTE navegador. La báscula sigue '
+               + 'funcionando y puedes volver a agregarla con su MAC.')) return;
+    lgQuitarYSalir(device);
+}
+function _mostrarEquipoInexistente(mac){
+    window._macInexistente = mac;
+    const caja = document.getElementById('equipo-inexistente');
+    const el   = document.getElementById('ei-mac');
+    if (el)   el.textContent = mac || '—';
+    if (caja) caja.style.display = 'flex';
 }
 /* ═══════════════════════════════════════════
    PROVEEDORES PARA RECARGA DE GAS
@@ -4301,6 +4391,9 @@ async function updateAll(){
             } else {
                 if (g) g.innerText = "Dispositivo no encontrado";
                 if (lrEl) lrEl.innerText = "Esta MAC no está registrada. Verifica la URL.";
+                /* [p35] #last-reading esta oculto, asi que ese texto no lo ve
+                   nadie. Sin esto la pantalla no ofrece NINGUNA salida. */
+                _mostrarEquipoInexistente(device);
             }
             return;
         }
