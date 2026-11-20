@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p35-salida-mac-inexistente-20261120">
+<meta name="lg-build" content="p36-clave-requiere-codigo-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1494,9 +1494,27 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                 window._accessRpcDisponible  = true;
                 const r = (typeof data === 'string') ? data : (data === true ? 'ok' : 'clave_actual_incorrecta');
                 if (r !== 'ok'){
+                    /* [p36] FALTABA requiere_codigo, y es el motivo MAS probable:
+                       set_access_key lo devuelve siempre que el equipo ya tiene
+                       user_email, o sea en todo equipo que ya esta en manos de un
+                       cliente. Sin esta entrada el mensaje era el generico «No se
+                       pudo guardar la clave», que no dice que hacer, y el modal
+                       seguia ofreciendo crear una clave que nunca se iba a poder
+                       guardar. Misma forma que la trampa de la MAC de p35: una
+                       negativa correcta del servidor sin salida en la pantalla. */
+                    if (r === 'requiere_codigo'){
+                        window._accessKeyExistsRemote = true;    // si, hay clave
+                        window._forceCreateAccessKey  = false;   // no es modo crear
+                        window._tieneCorreoRecuperacion = true;
+                        alert('Esta báscula ya tiene un correo de recuperación registrado, '
+                            + 'así que la clave solo se cambia con un código enviado a ese correo.\n\n'
+                            + 'Te abro ahora la recuperación de acceso.');
+                        try { abrirRecuperacion(); } catch(e){ console.warn('[p36]', e); }
+                        return false;
+                    }
                     const motivos = {
                         clave_actual_incorrecta: 'No se pudo cambiar la clave: la clave actual no coincide. Usa "¿Olvidaste tu clave?" para recuperarla por correo.',
-                        correo_requerido:        'Necesitas indicar un correo de recuperación para crear la clave.',
+                        correo_requerido:        'Necesitas indicar un correo de recuperación. Es el único modo de recuperar el acceso si olvidas la clave.',
                         correo_invalido:         'El correo indicado no es válido. Revísalo e inténtalo de nuevo.',
                         clave_corta:             'La clave debe tener al menos 4 caracteres.',
                         sin_dispositivo:         'Esta báscula no está registrada en Supabase.'
@@ -1679,6 +1697,15 @@ async function procesarIngresoClave(){
         /* PARCHE [seguridad 2026-08-22]: correo de recuperación obligatorio al
            crear la clave. Sin él, un cliente que la olvide se queda fuera para
            siempre: el reset exige la clave vigente y no hay otra vía. */
+        /* [p36] El correo de recuperacion es OBLIGATORIO al crear la clave. Ya lo
+           era aqui desde el parche del 22-08, pero solo aqui: set_access_key lo
+           aceptaba vacio, asi que cualquier llamada que no pasara por esta
+           pantalla podia dejar un equipo sin forma de recuperar el acceso. Desde
+           la migracion correo_recuperacion_obligatorio el servidor devuelve
+           'correo_requerido' y esta comprobacion es la primera barrera, no la
+           unica. Sin correo, una clave perdida solo se arregla con
+           factory_wipe_device, que exige service_role: una llamada a soporte y
+           una intervencion manual por cada cliente. */
         let correo = '';
         if (!window._tieneCorreoRecuperacion){
             correo = (document.getElementById('access-email')?.value || '').trim().toLowerCase();
