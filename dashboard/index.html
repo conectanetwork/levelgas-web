@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p30-ultimo-dato-20260930">
+<meta name="lg-build" content="p31-peso-bascula-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -210,6 +210,12 @@ header{
 .cal-note{font-size:9px;color:var(--muted);margin-top:5px;padding:4px 7px;background:var(--bg2);border-radius:5px;line-height:1.4}
 .cal-no-data{font-size:10px;color:var(--muted);text-align:center;padding:6px 0;font-style:italic}
 .cal-date{font-size:9px;color:var(--muted);margin-top:4px;text-align:right}
+/* [p31] Peso crudo en la bascula */
+.cal-bruto-row{border-bottom:1px solid var(--border2)}
+.cal-val.bruto{color:var(--text);font-variant-numeric:tabular-nums}
+.cal-val.bruto-err{color:var(--red);font-size:10px;font-weight:700}
+.cal-bruto-when{font-size:9px;color:var(--muted);text-align:right;margin-top:2px}
+.cal-bruto-warn{font-size:9px;color:var(--orange);margin-top:5px;padding:4px 7px;background:var(--bg2);border-radius:5px;line-height:1.4}
 /* ── Estado de espera en panel de calibración ── */
 @keyframes pulse-wait{0%,100%{opacity:1}50%{opacity:.35}}
 .cal-val.waiting{color:var(--orange);font-size:10px;font-weight:700;animation:pulse-wait 1.2s infinite;letter-spacing:.2px}
@@ -848,6 +854,14 @@ header{
       <!-- Panel de calibración -->
       <div class="dp-card cal-panel" id="cal-panel">
         <div class="dp-label"><i class="fas fa-balance-scale"></i> Última calibración</div>
+        <!-- [p31] Peso crudo. Va FUERA de #cal-data-rows a proposito: tiene que
+             verse aunque no haya calibracion y aunque la lectura sea descartada. -->
+        <div class="cal-row cal-bruto-row">
+          <span class="cal-lbl">Peso en la báscula</span>
+          <span class="cal-val bruto" id="cal-bruto">—</span>
+        </div>
+        <div class="cal-bruto-when" id="cal-bruto-when"></div>
+        <div class="cal-bruto-warn" id="cal-bruto-warn" style="display:none"></div>
         <div id="cal-no-data" class="cal-no-data">Sin calibración registrada</div>
         <div id="cal-data-rows" style="display:none">
           <div class="cal-row">
@@ -3500,6 +3514,78 @@ function updateChartColors(isHistory){
         _crearChartPrincipal(!!isHistory);
 }
 /* ═══════════════════════════════════════════
+   [p31] PESO CRUDO EN LA BÁSCULA
+   ═══════════════════════════════════════════
+   Lo que el ESP32 acaba de medir, tal cual: sin pasar por _brutoDe() y sin
+   restar la tara.
+
+   Es deliberado. _brutoDe() devuelve null cuando el bruto no alcanza el 90 %
+   de la tara configurada, y esa regla es correcta —un cilindro vacío de verdad
+   marca la tara entera, así que un bruto muy por debajo significa que no hay
+   cilindro sobre la báscula—. Pero deja la pantalla muda justo cuando hace
+   falta saber qué está leyendo el sensor.
+
+   Medido el 20-11-2026: el equipo informó 4,840 kg con una tara de 15,3 kg.
+   La fila llegó a sensor_data (arranque manual, 22:41 hora de Chile, fuera de
+   la grilla de 15,05 min del temporizador), _brutoDe() la descartó porque
+   4,840 < 13,77, y el panel no pintó nada. Desde fuera se vio idéntico a «el
+   RESET no envía», y costó una revisión completa del firmware —que estaba
+   bien— descubrir que el problema era de visualización.
+
+   Una regla de validación que actúa en silencio se ve igual que una falla.
+   Este campo es lo que la hace hablar. */
+function _pintarPesoBascula(row, tara){
+    const el   = document.getElementById('cal-bruto');
+    const when = document.getElementById('cal-bruto-when');
+    const warn = document.getElementById('cal-bruto-warn');
+    if (!el) return;
+    if (when) when.textContent = '';
+    if (warn) warn.style.display = 'none';
+
+    if (!row){
+        el.textContent = '—';
+        el.className   = 'cal-val bruto';
+        return;
+    }
+    const w = parseFloat(row.weight);
+    if (!Number.isFinite(w)){
+        el.textContent = 'sin dato';
+        el.className   = 'cal-val bruto-err';
+        return;
+    }
+    if (w <= -900){                      // centinela de error del HX711
+        el.textContent = 'error de lectura del sensor';
+        el.className   = 'cal-val bruto-err';
+        el.title       = 'La báscula no pudo leer la celda y envió el código de error.';
+    } else if (!_lecturaPlausible(w)){
+        /* 0,000 kg es lo que manda el HX711 cuando no entrega dato — medido en
+           terreno con un cilindro de 31,2 kg encima. Mostrar aquí el aviso de
+           tara seria culpar al cilindro de un fallo del sensor. */
+        el.textContent = w.toFixed(3) + ' kg';
+        el.className   = 'cal-val bruto-err';
+        el.title       = 'El sensor no entregó una lectura utilizable.';
+    } else {
+        el.textContent = w.toFixed(3) + ' kg';
+        el.className   = 'cal-val bruto';
+        el.title       = 'Peso medido sobre la plataforma, sin restar la tara '
+                       + 'y sin filtrar. Es lo que informó el equipo.';
+    }
+    if (when && row.created_at){
+        const d = toChileDate(row.created_at);
+        when.textContent = pad(d.getUTCDate()) + '-' + pad(d.getUTCMonth()+1) + '-'
+                         + d.getUTCFullYear() + ' ' + pad(d.getUTCHours()) + ':'
+                         + pad(d.getUTCMinutes());
+    }
+    const t = parseFloat(tara);
+    if (warn && Number.isFinite(t) && t > 0 && _lecturaPlausible(w)
+        && w < t * CILINDRO_MIN_FACTOR){
+        warn.innerHTML = '<i class="fas fa-triangle-exclamation"></i> Por debajo de la tara '
+                       + 'configurada (' + t.toFixed(1) + ' kg). El sistema no lo cuenta como '
+                       + 'cilindro, por eso el neto y el porcentaje no se actualizan.';
+        warn.style.display = '';
+    }
+}
+/* ═══════════════════════════════════════════
    PANEL DE CALIBRACIÓN
 ═══════════════════════════════════════════ */
 function _renderCalPanel(d){
@@ -4217,6 +4303,9 @@ async function updateAll(){
             window._lastChartTs = data[0].created_at;
             window._chartLatestRow = data[0];
         }
+        /* [p31] data[0] es la fila mas reciente SIN filtrar — justo lo que este
+           campo tiene que mostrar. No usar _ultimaValida() aqui. */
+        _pintarPesoBascula(data?.length ? data[0] : null, empty);
         if (!data?.length){
             // Si estamos esperando el primer dato tras un reset/cambio de cilindro,
             // NO retroceder al ciclo anterior — mantener el ciclo nuevo y esperar.
