@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p32-bajo-la-tara-cero-20261120">
+<meta name="lg-build" content="p33-cal-tara-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -863,8 +863,16 @@ header{
         <div id="cal-no-data" class="cal-no-data">Sin calibración registrada</div>
         <div id="cal-data-rows" style="display:none">
           <div class="cal-row">
-            <span class="cal-lbl">Neto estándar</span>
+            <span class="cal-lbl">Cilindro seleccionado</span>
             <span class="cal-val std" id="cal-std">—</span>
+          </div>
+          <!-- [p33] La tara escrita al cambiar el cilindro. Debe ser la estampada
+               en el collar, no un cilindro vacío pesado: el talón de gas que queda
+               sin consumir depende de la temperatura ambiente y metería una tara
+               distinta en verano que en invierno. -->
+          <div class="cal-row">
+            <span class="cal-lbl">Tara del cilindro</span>
+            <span class="cal-val" id="cal-tara">—</span>
           </div>
           <div class="cal-row">
             <span class="cal-lbl">Neto real medido</span>
@@ -3634,7 +3642,36 @@ function _renderCalPanel(d){
     if (!d || d.std == null){ return; }
     document.getElementById('cal-no-data').style.display   = 'none';
     document.getElementById('cal-data-rows').style.display = '';
-    document.getElementById('cal-std').textContent = d.std.toFixed(2) + ' kg';
+    /* [p33] «Cilindro seleccionado» sin decimales: es el gas nominal del MODELO
+       elegido (5, 11, 15, 45 kg), no una medición. Poner 15,00 kg invitaba a
+       leerlo como si la báscula lo hubiera pesado. */
+    const stdEl = document.getElementById('cal-std');
+    stdEl.textContent = (d.std > 0) ? Math.round(d.std) + ' kg' : '—';
+    stdEl.title = 'Gas que declara el modelo de cilindro elegido al configurarlo. '
+                + 'Es un valor nominal del modelo, por eso va sin decimales.';
+    /* [p33] La tara con la que se configuró este cilindro. Las calibraciones
+       guardadas antes de p33 no la traen; ahí se muestra la tara configurada
+       hoy, que es la que el dashboard está usando de verdad para el neto, y el
+       title lo advierte en vez de hacerla pasar por la registrada. */
+    const taraEl = document.getElementById('cal-tara');
+    if (taraEl){
+        const guardada = parseFloat(d.tara);
+        const esGuardada = Number.isFinite(guardada) && guardada > 0;
+        const t = esGuardada ? guardada : parseFloat(LS.getItem('empty'));
+        if (Number.isFinite(t) && t > 0){
+            taraEl.textContent = t.toFixed(2) + ' kg';
+            taraEl.className   = 'cal-val';
+            taraEl.title = esGuardada
+                ? 'Peso del cilindro vacío que se escribió al cambiarlo. Debe ser '
+                + 'el que viene estampado en el collar del cilindro.'
+                : 'Esta calibración es anterior y no guardó la tara. Se muestra la '
+                + 'tara configurada hoy, que es la que se está usando para el neto.';
+        } else {
+            taraEl.textContent = '—';
+            taraEl.className   = 'cal-val diff-pending';
+            taraEl.title       = 'Sin tara configurada.';
+        }
+    }
     const realEl = document.getElementById('cal-real');
     const diffEl = document.getElementById('cal-diff');
     const noteEl = document.getElementById('cal-note-row');
@@ -3710,7 +3747,7 @@ function confirmResetPressed(){
     // Guardar calibración con pending_reboot=false inmediatamente.
     // Así si el usuario recarga la página no vuelve a ver "Reinicie la báscula".
     const nowIso = new Date().toISOString();
-    const calData = { std: +gn, real: null, diff: null,
+    const calData = { std: +gn, tara: _taraConfigurada(), real: null, diff: null,   // [p33]
                       date: nowIso, cylinder_changed_at: nowIso, pending_reboot: false };
     LS.setItem('cal_data', JSON.stringify(calData));
     if (window.currentDeviceId){
@@ -3725,9 +3762,16 @@ function confirmResetPressed(){
     _startCalPolling();
     updateAll();
 }
+/* [p33] La tara vigente en el momento del cambio. saveConfig() y saveConfigAdv()
+   escriben LS 'empty' ANTES de llamar a registerCylinderChange(), así que aquí
+   ya está la recién ingresada y no la del cilindro anterior. */
+function _taraConfigurada(){
+    const t = parseFloat(LS.getItem('empty'));
+    return (Number.isFinite(t) && t > 0) ? t : null;
+}
 function showCalibrationResult(stdKg){
     const nowIso = new Date().toISOString();
-    const calData = { std: +stdKg, real: null, diff: null,
+    const calData = { std: +stdKg, tara: _taraConfigurada(), real: null, diff: null,  // [p33]
                       date: nowIso, cylinder_changed_at: nowIso, pending_reboot: true };
     LS.setItem('cal_data', JSON.stringify(calData));
     if (window.currentDeviceId){
