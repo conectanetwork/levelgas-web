@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p38-reset-clave-dice-la-verdad-20261120">
+<meta name="lg-build" content="p42-ingreso-mac-tolerante-20261121">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -426,10 +426,16 @@ header{
 .pb-name{font-size:13px;font-weight:700;margin-bottom:3px}
 .pb-name.hogar{color:var(--green)}
 .pb-name.empresa{color:var(--orange)}
-.pb-price{font-size:19px;font-weight:800;line-height:1.1;margin-bottom:8px}
+.pb-price{font-size:19px;font-weight:800;line-height:1.1;margin-bottom:2px}
 .pb-price span{font-size:10px;font-weight:400;color:var(--muted)}
+/* [p40] Que el cobro sea UNICO —Flow payment/create, no suscripcion— es
+   informacion que el cliente necesita antes de pagar, no despues. */
+.pb-periodo{font-size:9px;color:var(--muted2);margin-bottom:8px}
 .pb-feats{list-style:none;display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
 .pb-feats li{font-size:10px;color:var(--muted);display:flex;align-items:flex-start;gap:4px;line-height:1.4}
+/* [p39] La linea que justifica el plan empresa frente al hogar. */
+.pb-feats li.pb-destacado{color:var(--text);font-weight:700}
+.pb-feats li.pb-destacado i{color:var(--primary)}
 .pb-feats li i{color:var(--green);font-size:8px;flex-shrink:0;margin-top:3px}
 .btn-plan{width:100%;padding:7px 4px;border-radius:var(--radius-sm);font-size:10px;font-weight:700;cursor:pointer;transition:opacity .2s;font-family:inherit;border:1.5px solid transparent}
 .btn-plan:hover{opacity:.85}
@@ -1063,28 +1069,40 @@ header{
         <div class="plan-box hogar" id="pb-hogar">
           <div class="pb-name hogar">HOGAR</div>
           <div class="pb-price">$1.900<span>/mes</span></div>
+          <div class="pb-periodo">Pago único · 30 días</div>
           <ul class="pb-feats">
             <li><i class="fas fa-check"></i> Historial 30 días</li>
             <li><i class="fas fa-check"></i> Excel con ciclos</li>
             <li><i class="fas fa-check"></i> Export CSV</li>
             <li><i class="fas fa-check"></i> PDF diario</li>
-            <li><i class="fas fa-envelope"></i> Email batería baja</li>
-            <li><i class="fas fa-envelope"></i> Email gas bajo</li>
+            <li><i class="fas fa-envelope"></i> Email batería y gas bajo</li>
           </ul>
           <button id="plan-btn-hogar" class="btn-plan ctrt-h" onclick="selectPlan('hogar')">Contratar</button>
         </div>
         <div class="plan-box empresa" id="pb-empresa">
           <div class="pb-name empresa">EMPRESA</div>
-          <div class="pb-price">$9.900<span>/mes</span></div>
+          <!-- [p40] Decia "/mes" y era FALSO: flow-webhook da PLAN_DAYS.EMPRESA
+               = 183 dias por un solo pago.
+               [p41] Y el monto pasa de 9.900 a 11.400. Con 9.900 el plan
+               superior salia a 1.650 al mes, mas barato que HOGAR a 1.900:
+               nadie habria elegido HOGAR. Con 11.400 los dos planes valen lo
+               mismo al mes y la diferencia es lo que incluye cada uno.
+               ESTE NUMERO TIENE GEMELO en create-flow-payment (amount = 11400).
+               Si se cambia aqui y no alla, se cobra distinto de lo anunciado. -->
+          <div class="pb-price">$11.400<span>/6 meses</span></div>
+          <div class="pb-periodo">Pago único · 183 días</div>
           <ul class="pb-feats">
             <li><i class="fas fa-check"></i> Historial 6 meses</li>
             <li><i class="fas fa-check"></i> Excel con ciclos</li>
             <li><i class="fas fa-check"></i> Export CSV</li>
             <li><i class="fas fa-check"></i> PDF semanal</li>
-            <li><i class="fas fa-envelope"></i> Email batería baja</li>
-            <li><i class="fas fa-envelope"></i> Email gas bajo</li>
-            <li><i class="fas fa-sms"></i> SMS batería baja</li>
-            <li><i class="fas fa-sms"></i> SMS gas bajo</li>
+            <li><i class="fas fa-envelope"></i> Email batería y gas bajo</li>
+            <li><i class="fas fa-sms"></i> SMS batería y gas bajo</li>
+            <!-- [p39] La multibascula es LA diferencia de producto del plan
+                 empresa, no una mas: va destacada y con el tope explicito.
+                 El tope de 6 es el del panel (MAX_TILES en panel.html); si uno
+                 cambia, el otro tiene que cambiar con el. -->
+            <li class="pb-destacado"><i class="fas fa-layer-group"></i> Multibáscula — hasta 6 equipos</li>
           </ul>
           <button id="plan-btn-empresa" class="btn-plan ctrt-e" onclick="selectPlan('empresa')">Contratar</button>
         </div>
@@ -1714,11 +1732,18 @@ async function procesarIngresoClave(){
     if (!device || window._modoCambioEquipo){   // [p18]
         const deviceInput = document.getElementById('device-input');
         const accessInput = document.getElementById('access-input');
-        const valorMac = (deviceInput?.value || '').trim().toUpperCase();
         const claveProvisional = (accessInput?.value || '').trim();
-        const macValida = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(valorMac);
-        if (!macValida){
-            alert('Ingresa la MAC del equipo en formato XX:XX:XX:XX:XX:XX.');
+        /* [p42] _normalizarMac() en vez de exigir el formato exacto con dos
+           puntos y mayusculas. TODO el resto de la aplicacion ya acepta
+           cualquier separador: ?device=F85B1BF8B63C funciona desde el QR, y
+           lgAgregarBascula() tambien usa _normalizarMac(). Esta puerta era la
+           unica estricta, asi que quien copiaba la MAC de la etiqueta sin los
+           dos puntos, o en minusculas, quedaba fuera sin entender por que. */
+        const valorMac = _normalizarMac(deviceInput?.value || '');
+        if (!valorMac){
+            alert('No reconozco esa MAC.\n\nSon 12 dígitos hexadecimales, como '
+                + '38:44:BE:8B:A3:00. Está impresa en la etiqueta de la báscula, '
+                + 'debajo del QR, y puedes escribirla con o sin los dos puntos.');
             deviceInput?.focus();
             return;
         }
@@ -1727,6 +1752,22 @@ async function procesarIngresoClave(){
             accessInput?.focus();
             return;
         }
+        /* [p42] Comprobar que la bascula EXISTE antes de navegar. Sin esto una
+           MAC bien escrita pero inexistente llevaba a la pantalla sin salida de
+           p35/p37. Es mejor decirlo aqui, donde el campo sigue a la vista para
+           corregirlo, que dos pantallas mas adelante. Un fallo de red no
+           bloquea la entrada: se deja pasar y ya se vera despues. */
+        try {
+            const q = await db.from('devices').select('device_id')
+                              .eq('device_mac', valorMac).maybeSingle();
+            if (!q.error && !q.data){
+                alert('No hay ninguna báscula registrada con la MAC ' + valorMac + '.\n\n'
+                    + 'Revisa la etiqueta. Si la báscula es nueva, tiene que conectarse '
+                    + 'a internet al menos una vez antes de poder entrar.');
+                deviceInput?.focus();
+                return;
+            }
+        } catch(e){ console.warn('[ingreso] no se pudo comprobar la MAC', e); }
         localStorage.setItem('device_mac', valorMac);
         sessionStorage.setItem('access_key', claveProvisional);
         sessionStorage.setItem('activation_key', claveProvisional);
