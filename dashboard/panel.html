@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="lg-build" content="panel-v2-20261120">
+<meta name="lg-build" content="panel-v3-20261121">
 <title>LevelGas · Panel de cilindros</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
       integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0"
@@ -93,6 +93,12 @@ body{background:var(--bg);color:var(--text);min-height:100vh;
 .graf-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
 .graf-med{font-size:10px;color:var(--muted)}
 .graf svg{width:100%;display:block}
+/* Los días van en HTML y no dentro del SVG: el SVG usa
+   preserveAspectRatio="none" para estirarse al ancho del recuadro, y eso
+   deformaría cualquier texto que llevara dentro. */
+.graf-dias{display:flex;margin-top:2px}
+.graf-dias span{flex:1;text-align:center;font-size:8px;color:var(--muted2);line-height:1.2}
+.graf-dias span.hoy{color:var(--primary);font-weight:800}
 .graf-pie{display:flex;justify-content:space-between;font-size:9px;color:var(--muted2);margin-top:3px}
 
 .ok{color:var(--green)}     .warn{color:var(--orange)}    .danger{color:var(--red)}
@@ -313,21 +319,56 @@ function svgGauge(pct, mudo){
          + 'stroke-width="15" stroke-linecap="round"/>' + relleno
          + '</svg>';
 }
-function svgBarras(dias){
+/* [v3] Las barras solas no decían nada: ocho rectángulos sin escala, sin fechas
+   y sin saber cuál era hoy. Se veía una forma, no un dato. Ahora llevan:
+     · la escala, como «máx X,X kg» en la cabecera — sin eso la altura no
+       significa nada y dos recuadros distintos no se pueden comparar;
+     · la línea del ritmo, que es EL MISMO número con el que se calculan los
+       días restantes del pie: así se ve de un vistazo si el consumo de estos
+       días está por encima o por debajo de la estimación;
+     · la inicial del día debajo, con hoy marcado.
+   El <title> de cada barra se conserva, pero no se cuenta como información
+   disponible: en un teléfono no hay dónde posar el puntero. */
+const DIA_INICIAL = ['D','L','M','X','J','V','S'];   // X = miércoles
+function svgBarras(dias, ritmoKgDia){
     const max = Math.max(0.001, ...dias.map(d => d.kg));
     const n = dias.length, w = 100 / n, hueco = w * 0.22;
+    const alturaDe = kg => (kg / max) * 86;
     const barras = dias.map((d, i) => {
-        const h = (d.kg / max) * 86;
         const x = i * w + hueco / 2, bw = w - hueco;
-        const col = d.kg > 0 ? 'var(--primary)' : 'var(--border2)';
-        const alto = d.kg > 0 ? Math.max(h, 2) : 2;
+        const hoy = (i === dias.length - 1);
+        /* Hoy va en azul AUNQUE todavía no haya consumo: a primera hora su
+           barra es el tope de 2 px y en gris sería indistinguible de un día sin
+           datos, justo cuando saber dónde está hoy es lo que da sentido al
+           resto. El color y la etiqueta «hoy» de abajo dicen lo mismo. */
+        const col = hoy ? 'var(--blue)' : (d.kg > 0 ? 'var(--primary)' : 'var(--border2)');
+        const alto = d.kg > 0 ? Math.max(alturaDe(d.kg), 2) : 2;
         return '<rect x="' + x.toFixed(2) + '" y="' + (92 - alto).toFixed(2) + '" '
              + 'width="' + bw.toFixed(2) + '" height="' + alto.toFixed(2) + '" '
              + 'rx="1" fill="' + col + '"><title>' + d.dia + ': '
              + d.kg.toFixed(2) + ' kg</title></rect>';
     }).join('');
+    /* La línea solo se dibuja si cae dentro del gráfico. Un ritmo mayor que el
+       día más alto la pegaría al borde superior, donde no distingue nada. */
+    let linea = '';
+    if (ritmoKgDia > 0 && ritmoKgDia <= max){
+        const y = (92 - alturaDe(ritmoKgDia)).toFixed(2);
+        linea = '<line x1="0" x2="100" y1="' + y + '" y2="' + y + '" '
+              + 'stroke="var(--muted2)" stroke-width="0.7" stroke-dasharray="2 2" '
+              + 'vector-effect="non-scaling-stroke"><title>Ritmo usado para los días '
+              + 'restantes: ' + ritmoKgDia.toFixed(2) + ' kg/día</title></line>';
+    }
     return '<svg viewBox="0 0 100 96" preserveAspectRatio="none" height="52" '
-         + 'xmlns="http://www.w3.org/2000/svg">' + barras + '</svg>';
+         + 'xmlns="http://www.w3.org/2000/svg">' + barras + linea + '</svg>';
+}
+function filaDias(dias){
+    return '<div class="graf-dias">' + dias.map((d, i) => {
+        const [a, m, dd] = d.dia.split('-').map(Number);
+        const letra = DIA_INICIAL[new Date(Date.UTC(a, m - 1, dd)).getUTCDay()];
+        const hoy = (i === dias.length - 1);
+        return '<span class="' + (hoy ? 'hoy' : '') + '" title="' + dd + '/' + m + '">'
+             + (hoy ? 'hoy' : letra) + '</span>';
+    }).join('') + '</div>';
 }
 function chipBateria(v){
     const n = parseFloat(v);
@@ -389,8 +430,11 @@ function pintarTile(t){
     const [est, cls] = estadoPct(pct);
 
     const dias  = consumoPorDia(filas, tara, DIAS_GRAF);
-    const total = dias.reduce((a, d) => a + d.kg, 0);
-    const conDato = dias.filter(d => d.kg > 0).length;
+    const total  = dias.reduce((a, d) => a + d.kg, 0);
+    const maxDia = Math.max(0, ...dias.map(d => d.kg));
+    /* El mismo número que el pie usa para los días restantes: la línea
+       punteada del gráfico y el «kg/día» de abajo son lo mismo, a propósito. */
+    const ritmoKg = (ritmo && ritmo.motivo === 'ok' && ritmo.kg_dia > 0) ? +ritmo.kg_dia : 0;
 
     let pie;
     if (ritmo && ritmo.motivo === 'ok' && ritmo.kg_dia > 0 && !mudo && neto > 0){
@@ -433,8 +477,12 @@ function pintarTile(t){
          + '</div>'
          + '<div class="graf"><div class="graf-hdr">'
          +   '<span class="graf-lbl">Consumo diario · ' + DIAS_GRAF + ' días</span>'
-         +   '<span class="graf-med">' + total.toFixed(1) + ' kg en ' + conDato + ' días</span>'
-         + '</div>' + svgBarras(dias)
+         /* [v3] La ESCALA en la cabecera. Sin el máximo, la altura de una barra
+            no significa nada y dos recuadros no se pueden comparar entre sí:
+            cada uno se dibuja contra su propio máximo. */
+         +   '<span class="graf-med">' + total.toFixed(1) + ' kg · máx '
+         +     maxDia.toFixed(1) + ' kg</span>'
+         + '</div>' + svgBarras(dias, ritmoKg) + filaDias(dias)
          + '<div class="graf-pie">' + pie + '</div></div>'
          + '</div>';
 }
