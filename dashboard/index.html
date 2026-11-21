@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p42-ingreso-mac-tolerante-20261121">
+<meta name="lg-build" content="p43-encabezado-telefono-20261121">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -257,7 +257,15 @@ header{
 .share-ico{display:inline-block;width:18px;height:18px;background:#007AFF;border-radius:3px;text-align:center;line-height:18px;color:#fff;font-size:10px;vertical-align:middle;margin:0 2px}
 /* ─── MAIN GRID ─── */
 .dash{max-width:1200px;margin:0 auto;padding:18px 16px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:stretch}
-@media(max-width:960px){.dash{grid-template-columns:1fr}}
+/* [p43] minmax(0,1fr) y NO `1fr` pelado. `1fr` equivale a minmax(auto,1fr), y
+   ese `auto` toma el min-content del hijo mas ancho: el grafico y las tablas
+   estiraban la columna por encima de la pantalla y la pagina entera se
+   desplazaba en horizontal. Medido en iPhone 13: columna de 518 px dentro de
+   una pantalla de 390, scroll de 541. La regla de escritorio ya usaba
+   minmax(0,1fr); la de telefono se quedo con la version corta.
+   min-width:0 en las columnas por el mismo motivo, un nivel mas abajo: un hijo
+   flex no se encoge por debajo de su min-content sin esto. */
+@media(max-width:960px){.dash{grid-template-columns:minmax(0,1fr)}.l-col,.r-col{min-width:0}}
 /* columns */
 .l-col{display:flex;flex-direction:column;gap:14px}
 .l-col>.card:last-child{flex:1}
@@ -531,6 +539,35 @@ header{
 .rc-bat-text{font-size:12px;font-weight:600;min-width:80px;text-align:right}
 .rc-btn{width:26px;height:26px;font-size:14px}
 /* ─── RESPONSIVE ─── */
+/* [p43] EL ENCABEZADO EN TELEFONO.
+   header tenia height:80px FIJO y .hd-right flex-wrap:wrap. En pantalla
+   angosta los botones envolvian a dos y tres filas pero la caja no crecia, asi
+   que se salian por abajo y se montaban sobre el logo —que mide esos mismos
+   80 px—. Medido en iPhone y en Android: la primera pantalla era ilegible.
+
+   Venia anotado como pendiente desde p12 («probar en pantalla de telefono: el
+   encabezado ya tiene cuatro botones») y desde entonces se le agregaron dos
+   mas, Panel y la papelera. Son hasta ocho elementos en una fila.
+
+   Dos cosas lo arreglan: que la altura deje de ser fija, y que en pantalla
+   chica los botones queden solo con su icono. Los ocho iconos caben en una
+   fila; los ocho rotulos no caben en ninguna. El texto sigue en el `title`
+   y en aria-label para quien use lector de pantalla. */
+@media(max-width:760px){
+  /* flex-wrap:wrap en el HEADER, no solo en .hd-right: con nowrap el logo y el
+     bloque de botones quedan obligados a compartir fila, no caben, y la pagina
+     entera se desplaza en horizontal —medido: 541 px de contenido en una
+     pantalla de 390—. Con wrap, los botones bajan a su propia linea cuando no
+     caben al lado del logo. */
+  header{height:auto;min-height:56px;padding:8px 12px;flex-wrap:wrap;gap:6px}
+  .logo-img{height:38px}
+  .hd-right{gap:5px;flex-wrap:wrap;justify-content:flex-end;flex:1 1 auto;min-width:0}
+  .btn-qr-hdr{padding:6px 8px;font-size:13px;gap:0}
+  .btn-qr-hdr .btn-lbl{display:none}
+  .btn-install span{display:none}
+  .btn-install{padding:6px 8px;font-size:13px}
+  .sel-bascula{max-width:30vw;min-width:0}
+}
 @media(max-width:480px){
   header{padding:0 12px}.app-name{display:none}
   .mc-val{font-size:22px}.pb-price{font-size:15px}
@@ -562,13 +599,13 @@ header{
       <button class="btn-qr-hdr" id="btn-quitar-bascula" onclick="lgQuitarBasculaActual()"
               title="Quitar esta báscula de mi lista"><i class="fas fa-trash-can"></i></button>
       <button class="btn-qr-hdr" id="btn-panel-cilindros" onclick="abrirPanelCilindros()"
-              title="Ver todas tus básculas en una sola pantalla"><i class="fas fa-layer-group"></i> Panel</button>
+              title="Ver todas tus básculas en una sola pantalla"><i class="fas fa-layer-group"></i><span class="btn-lbl"> Panel</span></button>
     </div>
-    <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i> Reset de clave</button>
+    <button class="btn-qr-hdr" onclick="resetClaveAcceso()" title="Reset de clave"><i class="fas fa-key"></i><span class="btn-lbl"> Reset de clave</span></button>
     <!-- PARCHE [seguridad 2026-08-22]: entrega al cliente. Borra clave Y correo para que
          el nuevo dueño esté obligado a poner el suyo. Para el final del proceso de fábrica. -->
-    <button class="btn-qr-hdr" onclick="transferirBascula()" title="Deja la báscula lista para su nuevo dueño: borra clave, correo e historial"><i class="fas fa-right-left"></i> Transferir mi LevelGas</button>
-    <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i> QR</button>
+    <button class="btn-qr-hdr" onclick="transferirBascula()" title="Deja la báscula lista para su nuevo dueño: borra clave, correo e historial"><i class="fas fa-right-left"></i><span class="btn-lbl"> Transferir mi LevelGas</span></button>
+    <button class="btn-qr-hdr" onclick="downloadQR()" title="Descargar QR del dispositivo"><i class="fas fa-qrcode"></i><span class="btn-lbl"> QR</span></button>
     <button id="btn-install" class="btn-install" onclick="installPWA()"><i class="fas fa-download"></i><span>Instalar</span></button>
   </div>
 </header>
