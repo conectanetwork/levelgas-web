@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p37-equipo-inexistente-en-la-puerta-20261120">
+<meta name="lg-build" content="p38-reset-clave-dice-la-verdad-20261120">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1631,7 +1631,36 @@ function _bloquearPorClaveInvalida(motivo){
    báscula a otra persona hay que usar transferirBascula(), que borra las tres
    cosas. */
 async function resetClaveAcceso(){
-    if (!confirm('¿Resetear la clave de este dashboard?\n\nSe borrará la clave guardada y se pedirá crear una nueva en todos los terminales.\n\nEl correo de recuperación y el historial se mantienen. Si vas a entregar la báscula a otra persona, usa "Transferir mi LevelGas".')) return;
+    /* [p38] El aviso decia «se pedira crear una nueva en todos los terminales»
+       y eso NO es lo que pasa, por dos motivos:
+
+       1. La clave nueva se define UNA vez. En los demas terminales solo hay que
+          escribirla, no crearla.
+       2. En cuanto el equipo tiene correo de recuperacion —o sea en todo equipo
+          que ya esta con un cliente— set_access_key devuelve SIEMPRE
+          'requiere_codigo'. El modo «crear clave» que este mismo boton abria no
+          podia funcionar: el cliente rellenaba el formulario para nada. La
+          reposicion va por el codigo al correo, y punto.
+
+       Asi que el aviso ahora se arma segun el estado real del equipo, y despues
+       del reset se abre directamente el camino que SI funciona. */
+    let pista = null;
+    if (device){
+        try {
+            // Devuelve la direccion ENMASCARADA, nunca la real.
+            const { data } = await db.rpc('recovery_email_hint', { p_device_mac: device });
+            pista = (typeof data === 'string' && data.trim()) ? data.trim() : null;
+        } catch(e){ console.warn('[reset:pista]', e); }
+    }
+    const comoSeRepone = pista
+        ? 'Esta báscula tiene correo de recuperación, así que la clave nueva se define '
+        + 'con un código que llega a ' + pista + '.'
+        : 'La clave nueva se crea en el primer terminal que entre.';
+    if (!confirm('¿Resetear la clave de este dashboard?\n\n'
+               + 'La clave actual deja de servir de inmediato en todos los terminales.\n\n'
+               + comoSeRepone + ' En los demás terminales solo habrá que escribirla.\n\n'
+               + 'El correo de recuperación y el historial se mantienen. Si vas a entregar '
+               + 'la báscula a otra persona, usa "Transferir mi LevelGas".')) return;
     const claveActual = _claveLocal();
     // Borrar en Supabase ANTES de tocar el estado local: si el servidor rechaza el
     // reset, el terminal conserva su clave y no queda en un limbo sin acceso.
@@ -1668,9 +1697,18 @@ async function resetClaveAcceso(){
     window._accessKeyRemote       = null;
     window._accessKeyExistsRemote = false;
     window._accessGranted         = false;
-    window._forceCreateAccessKey  = true;
     _finalizarSesionConsulta();
-    abrirModalIngreso(false);
+    if (pista){
+        /* [p38] Con correo registrado el modo crear es un callejon: ir directo
+           a la recuperacion, que es el unico camino que el servidor acepta. */
+        window._forceCreateAccessKey    = false;
+        window._tieneCorreoRecuperacion = true;
+        abrirModalIngreso(false);
+        try { abrirRecuperacion(); } catch(e){ console.warn('[p38]', e); }
+    } else {
+        window._forceCreateAccessKey = true;
+        abrirModalIngreso(false);
+    }
 }
 async function procesarIngresoClave(){
     if (!device || window._modoCambioEquipo){   // [p18]
