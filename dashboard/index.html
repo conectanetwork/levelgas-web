@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p43-encabezado-telefono-20261121">
+<meta name="lg-build" content="p45-alias-compartido-20261122">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -2691,15 +2691,24 @@ function lgRenderSelector(){
     const lista = lgBasculas();
     // Con una sola bascula el desplegable no aporta, pero el boton "+" si:
     // es la unica forma de agregar la segunda.
+    /* Un desplegable de un solo elemento no aporta nada, y esa parte del
+       criterio de p12 se mantiene. */
     sel.style.display = lista.length >= 2 ? '' : 'none';
-    /* [p34] El panel multicilindro sigue la misma regla que el desplegable: con
-       una sola bascula no muestra nada que esta pantalla no muestre ya. */
+    /* [p44] Panel y papelera SI se muestran con una sola bascula. En p34 y p35
+       les puse la misma condicion que al desplegable y era un error de
+       razonamiento: lg_basculas es por NAVEGADOR, asi que "este navegador
+       conoce una" no dice nada sobre cuantas tiene la empresa. Encontrado
+       probando en telefono, donde ese navegador solo habia abierto una: el
+       boton del Panel —la funcion insignia del plan empresa— quedaba invisible
+       justo en el aparato donde mas se usa, y sin el no habia forma de llegar
+       a la pantalla desde donde se ven y se agregan las demas.
+       La papelera tampoco deja a nadie sin salida al quitar la unica: se cae a
+       la pantalla de ingreso con MAC y clave, que es un estado valido y la
+       unica manera de soltar una entrada equivocada cuando es la unica. */
     const btnPanel = document.getElementById('btn-panel-cilindros');
-    if (btnPanel) btnPanel.style.display = lista.length >= 2 ? '' : 'none';
-    /* [p35] La papelera sigue la misma regla: con una sola bascula quitarla
-       dejaria la lista vacia y al cliente sin a donde volver. */
+    if (btnPanel) btnPanel.style.display = '';
     const btnQuitar = document.getElementById('btn-quitar-bascula');
-    if (btnQuitar) btnQuitar.style.display = lista.length >= 2 ? '' : 'none';
+    if (btnQuitar) btnQuitar.style.display = '';
     sel.innerHTML = lista.map(b =>
         '<option value="' + b.mac + '"' + (b.mac === device ? ' selected' : '') + '>'
         + escapeHtml(lgNombreBascula(b)) + '</option>').join('');
@@ -2716,14 +2725,73 @@ function lgCambiarBascula(mac){
        navegue el navegador es mas corto y no se puede equivocar. */
     window.location.href = window.location.pathname + '?device=' + encodeURIComponent(mac.replace(/:/g, ''));
 }
-function lgRenombrarBascula(){
+/* [p45] EL NOMBRE AHORA ES COMPARTIDO Y LO PROTEGE LA CLAVE.
+   ─────────────────────────────────────────────────────────────────────────
+   Hasta p44 el nombre vivia solo en lg_basculas, o sea en el localStorage de
+   CADA navegador. El usuario lo noto probando desde varios aparatos: la misma
+   bascula con nombres distintos en cada uno. No era que alguien pisara el
+   nombre de otro —no habia nada compartido—, era que cada navegador tenia su
+   propia etiqueta.
+
+   Ahora el nombre de verdad es devices.alias, y se lee y se escribe con
+   alias_equipo(mac, clave, nuevo), que EXIGE la access_key. Esa es la misma
+   credencial que ya protege handover_to_client, reset_access_key,
+   set_access_key y vincular_equipo; usar el correo habria sido inventar una
+   segunda llave para una sola cosa.
+
+   lg_basculas se queda como CACHE: sigue siendo lo que alimenta el
+   desplegable y el panel sin pedir red, pero el valor bueno viene del
+   servidor y lo sobreescribe en cuanto llega.
+
+   Si el RPC todavia no esta aplicado en la base, todo esto degrada al
+   comportamiento anterior —nombre local— en vez de romperse. */
+async function _aliasRemoto(nuevo){
+    const clave = _claveLocal();
+    if (!device || !clave) return null;          // sin clave no se pregunta nada
+    try {
+        const { data, error } = await db.rpc('alias_equipo', {
+            p_device_mac: device, p_access_key: clave, p_nuevo: nuevo ?? null });
+        if (error){ console.warn('[alias] rpc', error.message || error); return null; }
+        return data || null;
+    } catch(e){ console.warn('[alias]', e); return null; }
+}
+/* Trae el nombre del servidor y lo deja en la cache local. Silencioso: si no
+   hay clave, si no hay red o si el RPC no existe, se queda el local. */
+async function _sincronizarAlias(){
+    const r = await _aliasRemoto(null);
+    if (!r || r.ok !== true) return;
+    const actual = (lgBasculas().find(b => b.mac === device) || {}).alias || '';
+    const remoto = r.alias || '';
+    if (remoto === actual) return;
+    lgRegistrarBascula(device, remoto);
+    lgRenderNombreActual();
+    lgRenderSelector();
+}
+async function lgRenombrarBascula(){
     if (!device){ alert('No hay ninguna báscula abierta.'); return; }
     const lista  = lgBasculas();
     const actual = lista.find(b => b.mac === device);
-    const nombre = prompt('¿Cómo quieres llamar a esta báscula?\n\nPor ejemplo: Cocina, Local Centro, Sucursal Norte.',
+    const nombre = prompt('¿Cómo quieres llamar a esta báscula?\n\n'
+                        + 'El nombre se guarda en la báscula, así que lo verás igual '
+                        + 'desde cualquier aparato.\n\nPor ejemplo: Cocina, Local Centro, Sucursal Norte.',
                           (actual && actual.alias) || '');
     if (nombre === null) return;
-    lgRegistrarBascula(device, nombre.trim().slice(0, 28));
+    const limpio = nombre.trim().slice(0, 28);
+    const r = await _aliasRemoto(limpio);
+    if (r && r.ok === false){
+        const motivos = {
+            clave_incorrecta: 'Para cambiar el nombre hace falta la clave de esta báscula, '
+                            + 'y la que tiene este terminal no coincide. Vuelve a entrar con la clave vigente.',
+            equipo_sin_clave: 'Esta báscula todavía no tiene clave configurada. Créala primero.',
+            sin_dispositivo:  'Esta báscula no está registrada en Supabase.'
+        };
+        alert(motivos[r.motivo] || 'No se pudo cambiar el nombre.');
+        return;
+    }
+    /* r === null significa que no se pudo preguntar (sin clave, sin red, o el
+       RPC aun no aplicado). Se guarda igual en local para no quitarle al
+       usuario algo que antes funcionaba; la proxima sincronizacion manda. */
+    lgRegistrarBascula(device, limpio);
     lgRenderNombreActual();
     lgRenderSelector();
 }
@@ -2785,9 +2853,15 @@ function lgQuitarBasculaActual(){
     const lista = lgBasculas();
     const b = lista.find(x => x.mac === device);
     const nom = lgNombreBascula(b || { mac: device });
+    /* [p44] Si es la ultima, decir a donde se va a parar. Quitarla es legitimo
+       —una MAC equivocada puede ser la unica de la lista— pero el cliente tiene
+       que saber que acabara en la pantalla de ingreso. */
+    const ultima = lista.length <= 1;
     if (!confirm('¿Quitar «' + nom + '» de tu lista?\n\n'
                + 'Solo se quita de la lista de ESTE navegador. La báscula sigue '
-               + 'funcionando y puedes volver a agregarla con su MAC.')) return;
+               + 'funcionando y puedes volver a agregarla con su MAC.'
+               + (ultima ? '\n\nEs la única de tu lista: volverás a la pantalla '
+                         + 'de ingreso, donde se pide la MAC y la clave.' : ''))) return;
     lgQuitarYSalir(device);
 }
 function _mostrarEquipoInexistente(mac){
@@ -5197,6 +5271,9 @@ async function getPlan(){
     lgRegistrarBascula(device);
     lgRenderNombreActual();
     lgRenderSelector();
+    /* [p45] El nombre bueno viene del servidor. No se espera: si tarda o falla,
+       la pantalla ya quedo pintada con el de la cache local. */
+    _sincronizarAlias();
     document.getElementById("plan-badge").innerText = "PLAN " + plan.toUpperCase();
     updatePlansUI(plan);
     _sesionAplicarPlan(plan);   // modo manual: no activa conexión continua
