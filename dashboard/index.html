@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p45-alias-compartido-20261122">
+<meta name="lg-build" content="p46-logo-pdf-proporcion-20261122">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -5471,6 +5471,10 @@ async function exportPDF(){
     xT.maxTicksLimit=oM; xT.maxRotation=oMx; xT.minRotation=oMn; ds.pointRadius=oPr; ch.update('none');
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+    /* [p46] Se devuelve tambien la PROPORCION del logo, no solo sus pixeles.
+       La version anterior solo resolvia el dataURL y mas abajo lo dibujaba en
+       un cuadrado de 20x20 mm, asi que un logo ancho —el de LevelGas lo es—
+       salia aplastado a la mitad de su ancho en todos los PDF. */
     const logoData = await (()=>new Promise(resolve=>{
         const el=document.querySelector('header img');
         if(!el||!el.complete||!el.naturalWidth) return resolve(null);
@@ -5478,9 +5482,20 @@ async function exportPDF(){
             const c=document.createElement('canvas');
             c.width=el.naturalWidth; c.height=el.naturalHeight;
             c.getContext('2d').drawImage(el,0,0);
-            resolve(c.toDataURL('image/png'));
+            resolve({ data: c.toDataURL('image/png'),
+                      prop: el.naturalWidth / el.naturalHeight });
         }catch{resolve(null);}
     }))();
+    /* La franja azul mide 22 mm de alto; 20 deja 1 mm arriba y abajo. El ancho
+       sale de la proporcion real, con tope para que un logo muy apaisado no se
+       meta debajo del titulo. Si el logo fuera mas alto que ancho, manda el
+       alto y el ancho queda corto: en ningun caso se deforma. */
+    const LOGO_ALTO_MAX = 20, LOGO_ANCHO_MAX = 46;
+    const logoProp  = logoData ? (logoData.prop || 1) : 1;
+    const logoAncho = Math.min(LOGO_ALTO_MAX * logoProp, LOGO_ANCHO_MAX);
+    const logoAlto  = logoAncho / logoProp;
+    const logoY     = 1 + (LOGO_ALTO_MAX - logoAlto) / 2;   // centrado en la franja
+    const xTexto    = logoData ? 2 + logoAncho + 4 : 14;
     /* PARCHE [2026-08-27]: las estadisticas se calculan sobre el CONSUMO por
        periodo. El promedio y el minimo solo consideran periodos con lecturas,
        para que los huecos sin transmision no falseen el reporte. */
@@ -5497,11 +5512,11 @@ async function exportPDF(){
     const fI=rd[0].day||rd[0].week_start||"";
     const fF=rd[rd.length-1].day||rd[rd.length-1].week_start||"";
     doc.setFillColor(99,102,241); doc.rect(0,0,297,22,"F");
-    if(logoData) doc.addImage(logoData,'PNG',2,1,20,20);
+    if(logoData) doc.addImage(logoData.data,'PNG',2,logoY,logoAncho,logoAlto);   // [p46]
     doc.setTextColor(255,255,255); doc.setFontSize(17); doc.setFont("helvetica","bold");
-    doc.text("LEVELGAS PRO",logoData?25:14,12);
+    doc.text("LEVELGAS PRO",xTexto,12);
     doc.setFontSize(9.5); doc.setFont("helvetica","normal");
-    doc.text(isEmpresa?"Reporte Empresarial - Consumo semanal":"Reporte Residencial - Consumo diario",logoData?25:14,19);
+    doc.text(isEmpresa?"Reporte Empresarial - Consumo semanal":"Reporte Residencial - Consumo diario",xTexto,19);
     doc.setFontSize(9); doc.text("PLAN "+plan.toUpperCase(),243,10); doc.text(new Date().toLocaleString("es-CL"),243,17);
     doc.setTextColor(0,0,0);
     doc.setFontSize(8); doc.setTextColor(100,100,120);
