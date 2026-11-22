@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p46-logo-pdf-proporcion-20261122">
+<meta name="lg-build" content="p47-cabecera-degradado-20261122">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -5495,7 +5495,6 @@ async function exportPDF(){
     const logoAncho = Math.min(LOGO_ALTO_MAX * logoProp, LOGO_ANCHO_MAX);
     const logoAlto  = logoAncho / logoProp;
     const logoY     = 1 + (LOGO_ALTO_MAX - logoAlto) / 2;   // centrado en la franja
-    const xTexto    = logoData ? 2 + logoAncho + 4 : 14;
     /* PARCHE [2026-08-27]: las estadisticas se calculan sobre el CONSUMO por
        periodo. El promedio y el minimo solo consideran periodos con lecturas,
        para que los huecos sin transmision no falseen el reporte. */
@@ -5511,13 +5510,34 @@ async function exportPDF(){
     const fMn=rd[iMn]?.day||rd[iMn]?.week_start||"";
     const fI=rd[0].day||rd[0].week_start||"";
     const fF=rd[rd.length-1].day||rd[rd.length-1].week_start||"";
+    /* [p47] La franja ya no es indigo plano. El logo trae texto oscuro —"LEVEL"
+       y "Telemetria y logistica"— que sobre el indigo casi desaparecia; lo vio
+       el usuario en un reporte real. Ahora la franja va de BLANCO en el borde
+       izquierdo, donde esta el logo, al INDIGO PLENO en el derecho, donde el
+       texto es blanco y necesita fondo oscuro.
+       jsPDF no sabe hacer degradados, asi que se pinta con franjas verticales
+       finas: se avanza 0.5 mm pintando 0.7 de ancho, o sea que cada una se
+       solapa 0.2 con la siguiente y no quedan costuras entre ellas. A esa
+       escala no se distingue de un degradado continuo, y no depende de canvas
+       —que para el logo puede fallar y devolver null. */
+    const GR_BLANCO = 60, GR_AZUL = 215;   // mm: hasta donde blanco puro / desde donde indigo pleno
     doc.setFillColor(99,102,241); doc.rect(0,0,297,22,"F");
+    for (let x = 0; x < GR_AZUL; x += 0.5){
+        const t = x <= GR_BLANCO ? 0 : (x - GR_BLANCO) / (GR_AZUL - GR_BLANCO);
+        doc.setFillColor(Math.round(255 + (99  - 255) * t),
+                         Math.round(255 + (102 - 255) * t),
+                         Math.round(255 + (241 - 255) * t));
+        doc.rect(x, 0, 0.7, 22, "F");
+    }
     if(logoData) doc.addImage(logoData.data,'PNG',2,logoY,logoAncho,logoAlto);   // [p46]
-    doc.setTextColor(255,255,255); doc.setFontSize(17); doc.setFont("helvetica","bold");
-    doc.text("LEVELGAS PRO",xTexto,12);
-    doc.setFontSize(9.5); doc.setFont("helvetica","normal");
-    doc.text(isEmpresa?"Reporte Empresarial - Consumo semanal":"Reporte Residencial - Consumo diario",xTexto,19);
-    doc.setFontSize(9); doc.text("PLAN "+plan.toUpperCase(),243,10); doc.text(new Date().toLocaleString("es-CL"),243,17);
+    /* [p47] Fuera el rotulo "LEVELGAS PRO": la marca ya la pone el logo, y
+       repetirla al lado era decir dos veces lo mismo. Todo el texto se va a la
+       derecha, alineado al margen, que es donde la franja sigue siendo oscura. */
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont("helvetica","bold");
+    doc.text(isEmpresa?"Reporte Empresarial - Consumo semanal":"Reporte Residencial - Consumo diario",293,8.5,{align:"right"});
+    doc.setFontSize(9); doc.setFont("helvetica","normal");
+    doc.text("PLAN "+plan.toUpperCase(),293,14,{align:"right"});
+    doc.text(new Date().toLocaleString("es-CL"),293,19,{align:"right"});
     doc.setTextColor(0,0,0);
     doc.setFontSize(8); doc.setTextColor(100,100,120);
     doc.text(isEmpresa
