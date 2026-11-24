@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p47-cabecera-degradado-20261122">
+<meta name="lg-build" content="p48-aviso-carga-se-puede-cerrar-20261124">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -384,6 +384,14 @@ header{
 .carga-row.extra{border-color:var(--orange);background:var(--orange-dim);color:#92400e}
 .carga-row i{margin-top:2px;flex-shrink:0}
 .carga-row b{font-weight:800}
+/* [p48] Cerrar el aviso. Hereda el color del texto de cada variante —ok, falta
+   o extra— en vez de fijar uno: asi no desentona en ninguna de las tres.
+   El relleno es grande y el margen negativo lo compensa: el blanco que toca el
+   dedo mide 29x29, pero la equis sigue pegada a la esquina como si midiera 17. */
+.carga-row button{margin:-6px -5px -6px auto;flex-shrink:0;align-self:flex-start;
+  background:none;border:0;color:inherit;opacity:.55;cursor:pointer;
+  font-family:inherit;font-size:15px;line-height:1;padding:7px 9px;border-radius:6px}
+.carga-row button:hover{opacity:1;background:rgba(0,0,0,.07)}
 .recambio-banner i{color:var(--orange);margin-top:2px;flex-shrink:0}
 .recambio-banner button{margin-left:auto;flex-shrink:0;background:var(--orange);color:#fff;border:0;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 /* ── AVISO DE RED PERDIDA [p14 2026-09-23] ────────────────────────────────
@@ -1175,6 +1183,7 @@ header{
       <div id="carga-box" class="carga-row">
         <i class="fas fa-weight-hanging"></i>
         <span id="carga-msg"></span>
+        <button type="button" onclick="ocultarAvisoCarga()" title="Entendido, no volver a mostrarlo para este cilindro" aria-label="Cerrar aviso">&times;</button>
       </div>
       <button class="btn-reset-hist" onclick="abrirResetHistorial()">
         <i class="fas fa-rotate-left"></i> Reiniciar contador e historial
@@ -1278,7 +1287,7 @@ const device    = _normalizarMac(rawDevice);
    El de proveedores de gas ya estaba resuelto en gasProvidersKey().
 ═══════════════════════════════════════════════════════════════════════════ */
 const LG_CLAVES_POR_BASCULA = ['access_key','activation_key','empty','full',
-                               'cal_data','lg_recambio_visto',
+                               'cal_data','lg_recambio_visto','lg_carga_vista',
                                'lg_contact_email','lg_contact_phone'];
 function _lgEspacio(){ return device || 'default'; }
 function lgClave(k){
@@ -2063,7 +2072,7 @@ async function transferirBascula(){
            descarte del aviso de recambio. Se limpia lo que pertenece a la persona,
            no a la báscula: la tara y la calibración se conservan a propósito. */
         try {
-            ['lg_recambio_visto','lg_contact_email','lg_contact_phone'].forEach(k => LS.removeItem(k));
+            ['lg_recambio_visto','lg_carga_vista','lg_contact_email','lg_contact_phone'].forEach(k => LS.removeItem(k));
         } catch(e){ console.warn('[handover] no se pudo limpiar el estado local', e); }
         window._recambioChkTs            = 0;
         window._recambioUltimo           = null;
@@ -3345,6 +3354,7 @@ async function confirmarResetHistorial(){
         try {
             LS.removeItem("cal_data");
             LS.removeItem("lg_recambio_visto");
+            LS.removeItem("lg_carga_vista");      // [p48]
         } catch(e){ console.warn("[reset_historial:local]", e); }
         window.historyData = []; window.rawSensorData = [];
         window.currentCycle = 1;
@@ -3389,6 +3399,13 @@ async function verificarCargaRecibida(){
         // instalado, y el dato sería inventado.
         if (!lc?.length) return ocultar();
         const tCambio = _fechaUTC(lc[0].created_at).getTime();
+        /* [p48] Si el cliente ya cerro el aviso DE ESTE cilindro, no vuelve.
+           Se guarda el instante del recambio, no un simple "visto": el proximo
+           cilindro trae un evento mas nuevo y el aviso reaparece solo. Es el
+           mismo criterio que lg_recambio_visto. */
+        window._cargaCilindro = lc[0].created_at;
+        const _cv = LS.getItem("lg_carga_vista");
+        if (_cv && _fechaUTC(_cv).getTime() >= tCambio) return ocultar();
         const { data } = await db.from("sensor_data")
             .select("created_at,weight,empty_weight")
             .eq("device_id", window.currentDeviceId)
@@ -3420,6 +3437,14 @@ async function verificarCargaRecibida(){
                           + `Revisa que la tara registrada (${tara.toFixed(2)} kg) sea la impresa en la botella.`;
         }
     } catch(e){ console.warn("[carga]", e); ocultar(); }
+}
+function ocultarAvisoCarga(){
+    /* Se recuerda por bascula (LS ya califica la clave) y por cilindro. Si el
+       navegador no deja escribir —Safari con cookies bloqueadas— LS.setItem se
+       traga el error y el aviso se cierra igual hasta el proximo refresco: es
+       preferible a no poder cerrarlo. */
+    if (window._cargaCilindro) LS.setItem("lg_carga_vista", window._cargaCilindro);
+    document.getElementById("carga-box")?.classList.remove("on");
 }
 function ocultarAvisoRecambio(){
     if (window._recambioUltimo) LS.setItem("lg_recambio_visto", window._recambioUltimo);
