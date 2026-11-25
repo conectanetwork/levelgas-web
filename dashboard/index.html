@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p48-aviso-carga-se-puede-cerrar-20261124">
+<meta name="lg-build" content="p49-codigo-activacion-20261124">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1542,7 +1542,7 @@ async function _iniciarDashboardTrasAcceso(){
    DEFINER (migración 202608100002), que revoca a `anon` el SELECT sobre la
    columna. Compatibilidad: si los RPC no existen aún, cae al camino anterior.
 ═══════════════════════════════════════════════════════════════════════════ */
-async function _guardarClaveRemota(valor, correoRecuperacion){
+async function _guardarClaveRemota(valor, correoRecuperacion, codigoActivacion){
     /* PARCHE [2026-08-23]: antes devolvía true sin device — decía "clave
        guardada" sin escribir nada, y la clave quedaba solo en ese navegador. */
     if (!device){
@@ -1555,7 +1555,11 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                 p_device_mac:     device,
                 p_new_key:        valor,
                 p_current_key:    _claveLocal() || null,
-                p_recovery_email: correoRecuperacion || null
+                p_recovery_email: correoRecuperacion || null,
+                /* [p49] El codigo impreso dentro de la caja. Va null salvo que
+                   la base lo haya pedido en un intento anterior. Un equipo sin
+                   codigo —todos los anteriores a v81.20— lo ignora. */
+                p_activation_code: codigoActivacion || null
             });
             if (!error){
                 window._accessRpcDisponible  = true;
@@ -1579,6 +1583,29 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                         try { abrirRecuperacion(); } catch(e){ console.warn('[p36]', e); }
                         return false;
                     }
+                    /* [p49] El equipo trae codigo de activacion y no se mando.
+                       Es lo que impide que el operador de una distribuidora
+                       —que recibe el device_id por diseño— se quede con una
+                       bascula ajena: el codigo vive dentro de la caja sellada.
+
+                       Se pide y se reintenta UNA vez. El reintento pasa el
+                       codigo explicitamente en vez de releerlo de ningun lado,
+                       para que no quede guardado en ninguna parte del
+                       navegador: se usa y se olvida. */
+                    if (r === 'requiere_codigo_activacion' || r === 'codigo_activacion_incorrecto'){
+                        if (codigoActivacion){
+                            alert('El código de activación no coincide.\n\n'
+                                + 'Está impreso en la etiqueta pegada a la báscula, '
+                                + 'dentro de la caja. Son 8 caracteres, por ejemplo MHTU-ZS6N.');
+                            return false;
+                        }
+                        const cod = prompt(
+                            'Esta báscula pide su código de activación.\n\n'
+                            + 'Está impreso en la etiqueta pegada a la báscula, dentro de la caja. '
+                            + 'Son 8 caracteres, por ejemplo MHTU-ZS6N.');
+                        if (!cod) return false;
+                        return await _guardarClaveRemota(valor, correoRecuperacion, cod);
+                    }
                     if (r === 'sin_dispositivo'){
                         /* [p37] Ultima red. Si pese a todo se llega hasta aqui
                            con una MAC que no existe, el aviso tiene salida en
@@ -1591,6 +1618,8 @@ async function _guardarClaveRemota(valor, correoRecuperacion){
                         correo_requerido:        'Necesitas indicar un correo de recuperación. Es el único modo de recuperar el acceso si olvidas la clave.',
                         correo_invalido:         'El correo indicado no es válido. Revísalo e inténtalo de nuevo.',
                         clave_corta:             'La clave debe tener al menos 4 caracteres.',
+                        requiere_codigo_activacion:   'Esta báscula necesita el código de activación impreso en la etiqueta, dentro de la caja.',
+                        codigo_activacion_incorrecto: 'El código de activación no coincide. Son 8 caracteres, por ejemplo MHTU-ZS6N.',
                         sin_dispositivo:         'Esta báscula no está registrada en Supabase.'
                     };
                     alert(motivos[r] || 'No se pudo guardar la clave.');
