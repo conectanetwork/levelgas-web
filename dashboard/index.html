@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p50-lecturas-por-el-worker-20261124">
+<meta name="lg-build" content="p51-url-estable-para-la-cache-20261124">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1258,6 +1258,24 @@ header{
 const API_BASE          = "https://api.levelgas.cl";
 const SUPABASE_ANON_KEY = "sb_publishable_uh1UiFUzu2mBDUGvBIR5dA_YQ3C5XBW";
 const db = supabase.createClient(API_BASE, SUPABASE_ANON_KEY);
+
+/* [p51] El instante redondeado al minuto.
+
+   La cache del borde usa la URL COMPLETA como clave. Una marca de tiempo con
+   precision de milisegundo dentro de un filtro `.gte("created_at", ...)` hace
+   que cada peticion tenga una URL distinta y que la cache NO ACIERTE NUNCA —
+   sin error, sin aviso, solo un `miss` eterno.
+
+   Para una ventana de 48 horas o de 30 dias, empezar en el minuto redondo en
+   lugar del milisegundo exacto no cambia ningun resultado. Lo que cambia es
+   que la URL se mantiene estable durante ese minuto y la cache sirve para
+   algo.
+
+   Usar esto en cualquier filtro de fecha que se derive de "ahora". NO hace
+   falta en los que arrancan de un evento guardado —un cambio de cilindro, un
+   ancla de calibracion—: esos ya son estables por su cuenta. */
+const MS_CUBO_URL = 60000;
+const ahoraCubo = () => Math.floor(Date.now() / MS_CUBO_URL) * MS_CUBO_URL;
 /* ═══════════════════════════════════════════
    DEVICE & TIMEZONE
 ═══════════════════════════════════════════ */
@@ -3266,7 +3284,10 @@ async function checkRecambioNoRegistrado(){
     if (window._recambioChkTs && Date.now() - window._recambioChkTs < 600000) return;
     window._recambioChkTs = Date.now();
     try {
-        const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+        // [p51] ahoraCubo(): esta ya se consulta como mucho cada 10 minutos,
+        // pero cada llamada estrenaba URL, asi que dos clientes del mismo
+        // equipo nunca compartian la respuesta.
+        const desde = new Date(ahoraCubo() - 30 * 86400000).toISOString();
         const { data: lect } = await db.from("sensor_data")
             .select("created_at,weight,cycle_id,empty_weight")
             .eq("device_id", window.currentDeviceId)
@@ -4801,7 +4822,10 @@ async function updateAll(){
         const fullStr  = LS.getItem("full")  || document.getElementById("full-weight").value  || "0";
         const empty = parseFloat(emptyStr);
         const full  = parseFloat(fullStr);
-        const supportWindowIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        // [p51] ahoraCubo() y no Date.now(): ver el comentario de MS_CUBO_URL.
+        // Esta es la consulta mas repetida del dashboard, la que alimenta el
+        // grafico. Es la que de verdad importa que se pueda cachear.
+        const supportWindowIso = new Date(ahoraCubo() - 48 * 60 * 60 * 1000).toISOString();
         let { data, error: sErr } = await db.from("sensor_data")
             .select("created_at, weight, empty_weight, battery_voltage, battery_percentage, cycle_id, wifi_ssid, temperature, rssi")
             .eq("device_id", window.currentDeviceId)
