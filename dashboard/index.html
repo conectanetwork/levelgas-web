@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard LevelGas</title>
-<meta name="lg-build" content="p49-codigo-activacion-20261124">
+<meta name="lg-build" content="p50-lecturas-por-el-worker-20261124">
 <meta name="description" content="Consulta el nivel, consumo, autonomía y estado de tu equipo LevelGas.">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="application-name" content="LevelGas">
@@ -1240,9 +1240,24 @@ header{
 /* ===========================================
    SUPABASE
 ═══════════════════════════════════════════ */
-const SUPABASE_URL      = "https://uooftjtllmsnugdcldvc.supabase.co";
+/* [p50] Las lecturas entran por el Worker, no por supabase.co.
+
+   El Worker reenvia /rest/v1/*, /auth/v1/* y /functions/v1/* tal cual, CON LA
+   CLAVE PUBLICABLE DE ABAJO — no con la de servicio. RLS sigue aplicandose
+   igual que antes; lo unico que se agrega delante es un techo por IP y cache
+   de 30 s sobre la serie de sensor_data.
+
+   PARA VOLVER AL CAMINO DIRECTO: poner aqui
+   "https://uooftjtllmsnugdcldvc.supabase.co" y subir el archivo. Nada mas.
+   Por eso es una constante y no una URL repartida por el documento.
+
+   Se llama API_BASE y ya no SUPABASE_URL porque ya no apunta a Supabase. Una
+   constante cuyo nombre miente es como este proyecto termino con
+   FIRMWARE_VERSION y NVS_FW_KEY diciendo cosas distintas durante tres
+   versiones seguidas. */
+const API_BASE          = "https://api.levelgas.cl";
 const SUPABASE_ANON_KEY = "sb_publishable_uh1UiFUzu2mBDUGvBIR5dA_YQ3C5XBW";
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const db = supabase.createClient(API_BASE, SUPABASE_ANON_KEY);
 /* ═══════════════════════════════════════════
    DEVICE & TIMEZONE
 ═══════════════════════════════════════════ */
@@ -1950,7 +1965,7 @@ async function procesarIngresoClave(){
    datos, el código caduca a los 15 minutos y access_key puede guardarse
    hasheada.
 ═══════════════════════════════════════════════════════════════════════════ */
-const RECOVERY_FN_URL = SUPABASE_URL + "/functions/v1/access-recovery";
+const RECOVERY_FN_URL = API_BASE + "/functions/v1/access-recovery";
 window._tieneCorreoRecuperacion = false;   // lo resuelve _iniciarConClave()
 
 function abrirRecuperacion(){
@@ -5720,7 +5735,11 @@ async function confirmContactAndPay(){
     if (!plan) return;
     try {
         const r = await fetch(
-            "https://uooftjtllmsnugdcldvc.supabase.co/functions/v1/create-flow-payment",
+            /* [p50] Estaba escrita entera aqui, con el identificador del
+               proyecto dentro. Pasa por la constante como todo lo demas: es
+               el ultimo sitio del dashboard que ataba la pagina a ese
+               proyecto de Supabase. */
+            API_BASE + "/functions/v1/create-flow-payment",
             { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({device, plan, email}) }
         );
         const data = await r.json();
